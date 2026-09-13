@@ -1,31 +1,14 @@
 {
     ".url": {
         "fndesk.Application": {
-            "title": "Fndesk",
+            "title": "Fndesk Lite",
             "icon": "images/icon_{0}.png",
             "type": "iframe",
-            "url": "/app/fndesk",
+            "url": "/cgi/ThirdParty/fndesk/index.cgi/",
             "gatewaySocket": "fndesk.sock",
             "gatewayPrefix": "/app/fndesk",
             "allUsers": false,
             "control": {"accessPerm": "editable"}
-        },
-        "fndesk.fndesk": {
-            "title": "Fndesk 音乐速听",
-            "icon": "images/icon_{0}.png",
-            "type": "iframe",
-            "url": "/app/fndesk/fndesk.html",
-            "allUsers": true,
-            "noDisplay": true
-        },
-        "fndesk.player": {
-            "title": "Fndesk 音乐速听",
-            "icon": "images/icon_{0}.png",
-            "type": "iframe",
-            "url": "${wizard_app_music}",
-            "allUsers": true,
-            "noDisplay": true,
-            "fileTypes": ["mp3", "wav", "flac", "ogg", "m4a", "aac","ape", "dsf", "dff", "wv", "wma", "dts","ac3", "eac3", "aiff", "aif", "mka", "tak","tta", "mpc", "opus"]
         }
     }
 }

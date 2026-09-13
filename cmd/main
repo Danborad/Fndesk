@@ -1,30 +1,43 @@
 #!/bin/bash
 
-# ========== 基础配置（全局保留） ==========
+# ========== Fndesk Lite 进程守护与生命周期管理 ==========
 LOG_FILE="${TRIM_APPDEST_VOL}/@appshare/${TRIM_APPNAME}/fndesk日志.log"
 PID_FILE="${TRIM_PKGVAR}/app.pid"
-DATA_DIR="${TRIM_DATA_SHARE_PATHS%%:*}"
-# ========== 初始化日志（全局保留，确保日志文件存在） ==========
-mkdir -p "$(dirname "${LOG_FILE}")" || exit 1
-touch "${LOG_FILE}" || exit 1
-# ========== 脚本自身输出重定向（全局保留） ==========
+SERVER_JS="${TRIM_APPDEST}/server/server.js"
+
+mkdir -p "$(dirname "${LOG_FILE}")" 2>/dev/null || true
+touch "${LOG_FILE}" 2>/dev/null || true
 exec >> "${LOG_FILE}" 2>&1
-# ========== 日志裁剪函数（全局保留） ==========
+
 trim_log() {
     if [ -f "${LOG_FILE}" ]; then
         local line_count=$(wc -l < "${LOG_FILE}")
-        if [ "${line_count}" -gt 100 ]; then
-            sed -i -e :a -e '$q;N;51,$D;ba' "${LOG_FILE}"
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - ✅ 日志已裁剪，保留最后100行"
+        if [ "${line_count}" -gt 200 ]; then
+            sed -i -e :a -e '$q;N;101,$D;ba' "${LOG_FILE}"
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - [Fndesk Lite] 日志已裁剪，保留最后100行"
         fi
     fi
 }
-# ========== 进程检查函数（全局保留） ==========
+
+find_node() {
+    if command -v node >/dev/null 2>&1; then
+        command -v node
+        return 0
+    fi
+    for p in "/usr/bin/node" "/usr/local/bin/node" "/var/apps/nodejs_v22/target/bin/node" "/var/apps/nodejs_v24/target/bin/node"; do
+        if [ -x "$p" ]; then
+            echo "$p"
+            return 0
+        fi
+    done
+    return 1
+}
+
 check_process() {
     local pid=$1
-    kill -0 "${pid}" 2>/dev/null && return 0 || return 1
+    [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null && return 0 || return 1
 }
-# ========== status函数（仅检查进程，无检测/下载） ==========
+
 status() {
     if [ -f "${PID_FILE}" ]; then
         pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
@@ -36,54 +49,52 @@ status() {
     fi
     return 1
 }
-# ========== stop函数（仅停止进程，无检测/下载） ==========
+
 stop_process() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - 🛑 飞牛系统停止了 ${TRIM_APPNAME} 应用..."
-    # ========== 原有逻辑：杀PID文件里的进程 ==========
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [Fndesk Lite] 正在停止服务..."
     if [ -r "${PID_FILE}" ]; then
         pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
-        
         if check_process "${pid}"; then
-            # 优雅停止
-            kill -TERM ${pid}
-            # 等待10秒
+            kill -TERM "${pid}" 2>/dev/null || true
             local count=0
-            while check_process "${pid}" && [ $count -lt 10 ]; do
+            while check_process "${pid}" && [ $count -lt 5 ]; do
                 sleep 1
                 count=$((count + 1))
             done
-            # 强制杀死
             if check_process "${pid}"; then
-                kill -KILL "${pid}"
-                sleep 1
+                kill -KILL "${pid}" 2>/dev/null || true
             fi
         fi
         rm -f "${PID_FILE}"
     fi
-    # ========== 残留进程清理（⚠️ 注意：这里我把原来node匹配改成二进制路径匹配！） ==========
-    pkill -f "${TRIM_APPDEST}/server/fndesk-go" || true
-    sleep 2
-    pkill -9 -f "${TRIM_APPDEST}/server/fndesk-go" || true
+    pkill -f "${SERVER_JS}" 2>/dev/null || true
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [Fndesk Lite] 服务已停止"
     return 0
 }
-# ========== start函数（纯二进制启动，全部node逻辑删除） ==========
+
 start_process() {
-    echo ""
-    echo "-------------- -【$(date '+%Y-%m-%d %H:%M:%S')】- --------------"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - ℹ️ 飞牛系统启动了 ${TRIM_APPNAME} 应用..."
-    # 第一步：先检查进程是否已运行，避免重复启动
+    echo "-------------- [$(date '+%Y-%m-%d %H:%M:%S')] --------------"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [Fndesk Lite] 启动中..."
+    
     if status; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - [Fndesk Lite] 进程已在运行"
         return 0
     fi
-    # ========== 直接启动二进制 ==========
-    # echo "$(date '+%Y-%m-%d %H:%M:%S') - ✅ 系统架构${TRIM_SYS_ARCH} ✅ 飞牛版本${TRIM_SYS_VERSION} ✅ Fndesk版本${TRIM_APPVER}"
-    CMD="${TRIM_APPDEST}/server/fndesk-go"
-    bash -c "${CMD} >> ${LOG_FILE} 2>&1" &
+
+    NODE_BIN=$(find_node)
+    if [ -z "${NODE_BIN}" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - 错误：系统中未找到 Node.js 运行时！"
+        return 1
+    fi
+
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - 使用 Node: ${NODE_BIN}，执行脚本: ${SERVER_JS}"
+    "${NODE_BIN}" "${SERVER_JS}" >> "${LOG_FILE}" 2>&1 &
     local app_pid=$!
-    printf "%s" "${app_pid}" > ${PID_FILE}
+    printf "%s" "${app_pid}" > "${PID_FILE}"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [Fndesk Lite] 服务启动成功，PID: ${app_pid}"
     return 0
 }
-# ========== 脚本入口（分发指令） ==========
+
 case $1 in
 start)
     start_process
@@ -94,13 +105,12 @@ stop)
     ;;
 status)
     status
-    ret=$?
-    if [ $ret -eq 0 ]; then
-        exit 0
-    else
-        start_process
-        exit $?
-    fi
+    exit $?
+    ;;
+restart)
+    stop_process
+    sleep 1
+    start_process
     ;;
 *)
     exit 1
