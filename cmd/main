@@ -1,6 +1,11 @@
 #!/bin/bash
 
 # ========== Fndesk Lite 进程守护与生命周期管理 ==========
+TRIM_APPNAME="${TRIM_APPNAME:-fndesk}"
+TRIM_APPDEST_VOL="${TRIM_APPDEST_VOL:-/vol1}"
+TRIM_APPDEST="${TRIM_APPDEST:-/var/apps/fndesk/target}"
+TRIM_PKGVAR="${TRIM_PKGVAR:-/var/apps/fndesk/var}"
+
 LOG_FILE="${TRIM_APPDEST_VOL}/@appshare/${TRIM_APPNAME}/fndesk日志.log"
 PID_FILE="${TRIM_PKGVAR}/app.pid"
 SERVER_JS="${TRIM_APPDEST}/server/server.js"
@@ -20,16 +25,16 @@ trim_log() {
 }
 
 find_node() {
-    if command -v node >/dev/null 2>&1; then
-        command -v node
-        return 0
-    fi
     for p in "/usr/bin/node" "/usr/local/bin/node" "/var/apps/nodejs_v22/target/bin/node" "/var/apps/nodejs_v24/target/bin/node"; do
         if [ -x "$p" ]; then
             echo "$p"
             return 0
         fi
     done
+    if command -v node >/dev/null 2>&1; then
+        command -v node
+        return 0
+    fi
     return 1
 }
 
@@ -88,7 +93,7 @@ start_process() {
     fi
 
     echo "$(date '+%Y-%m-%d %H:%M:%S') - 使用 Node: ${NODE_BIN}，执行脚本: ${SERVER_JS}"
-    "${NODE_BIN}" "${SERVER_JS}" >> "${LOG_FILE}" 2>&1 &
+    nohup "${NODE_BIN}" "${SERVER_JS}" >> "${LOG_FILE}" 2>&1 &
     local app_pid=$!
     printf "%s" "${app_pid}" > "${PID_FILE}"
     echo "$(date '+%Y-%m-%d %H:%M:%S') - [Fndesk Lite] 服务启动成功，PID: ${app_pid}"

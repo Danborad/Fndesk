@@ -10,31 +10,34 @@
 </head>
 <body>
 
-  <!-- 顶部导航栏 -->
+  <!-- 顶部极简导航栏 -->
   <header class="navbar">
     <div class="brand">
       <img src="static/icon.png" alt="Fndesk Logo" class="brand-logo" onerror="this.src='favicon.ico'">
       <div class="brand-title">
         <span>Fndesk Lite</span>
-        <span class="badge-version">v1.0.0-lite</span>
+        <span class="badge-version">v2.0 Lite</span>
       </div>
     </div>
     <div class="nav-actions">
       <button class="btn btn-secondary btn-sm" id="btnRefresh" title="刷新列表">
-        <i class="fa fa-refresh"></i> 刷新
+        <i class="fa fa-refresh" id="refreshIcon"></i> <span>刷新</span>
       </button>
       <button class="btn btn-secondary btn-sm" id="btnSettings" title="设置与密码">
-        <i class="fa fa-cog"></i> 设置
+        <i class="fa fa-cog"></i> <span>设置</span>
+      </button>
+      <button class="btn btn-primary btn-sm" id="btnAddIcon">
+        <i class="fa fa-plus"></i> <span>添加应用图标</span>
       </button>
       <button class="btn btn-secondary btn-sm" id="btnLogout" title="退出登录" style="display:none;">
-        <i class="fa fa-sign-out"></i> 退出
+        <i class="fa fa-sign-out"></i>
       </button>
     </div>
   </header>
 
   <!-- 主体视图 -->
   <main class="main-container">
-    <!-- 统计指标 -->
+    <!-- 指标卡片 -->
     <section class="stats-grid">
       <div class="stat-card">
         <div class="stat-icon"><i class="fa fa-th-large"></i></div>
@@ -44,7 +47,7 @@
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--success);">
+        <div class="stat-icon" style="background: rgba(16, 185, 129, 0.12); color: var(--success);">
           <i class="fa fa-check-circle"></i>
         </div>
         <div>
@@ -52,13 +55,13 @@
           <div class="stat-label">飞牛原生应用</div>
         </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon" style="background: rgba(14, 165, 233, 0.15); color: #0ea5e9;">
+      <div class="stat-card" style="cursor: pointer;" id="cardDockerStat" title="点击查看运行中 Docker 容器">
+        <div class="stat-icon" style="background: rgba(56, 189, 248, 0.12); color: var(--accent);">
           <i class="fa fa-cubes"></i>
         </div>
         <div>
           <div class="stat-value" id="statDockerContainers">-</div>
-          <div class="stat-label">Docker 容器</div>
+          <div class="stat-label"><span class="pulse-dot"></span> 运行中 Docker</div>
         </div>
       </div>
     </section>
@@ -66,101 +69,166 @@
     <!-- 工具与筛选条 -->
     <section class="toolbar">
       <div class="search-box">
-        <i class="fa fa-search" style="color: var(--text-muted);"></i>
-        <input type="text" id="searchInput" placeholder="搜索图标名称、端口或地址...">
+        <i class="fa fa-search"></i>
+        <input type="text" id="searchInput" placeholder="搜索应用名称、端口或访问地址...">
       </div>
-      <div class="filter-tabs">
-        <button class="filter-tab active" data-filter="all">全部</button>
-        <button class="filter-tab" data-filter="native">原生应用</button>
-        <button class="filter-tab" data-filter="shortcut">仅快捷方式</button>
+      <div class="segmented-control" id="filterSegment">
+        <button class="segmented-btn active" data-filter="all">全部图标</button>
+        <button class="segmented-btn" data-filter="native">飞牛原生应用</button>
+        <button class="segmented-btn" data-filter="shortcut">桌面快捷方式</button>
       </div>
-      <button class="btn btn-primary" id="btnAddIcon">
-        <i class="fa fa-plus"></i> 添加新图标
-      </button>
     </section>
 
     <!-- 图标网格展示 -->
     <section class="icon-grid" id="iconGrid">
-      <!-- 动态填充 -->
+      <!-- 动态加载填充 -->
     </section>
   </main>
 
-  <!-- 添加/编辑图标模态框 -->
+  <!-- 现代化应用图标与工坊一体化模态框 (双列设计，告别滚动条) -->
   <div class="modal-overlay" id="editModal">
-    <div class="modal">
+    <div class="modal modal-lg">
       <div class="modal-header">
         <h3 class="modal-title" id="editModalTitle">
-          <i class="fa fa-pencil-square-o"></i> 添加应用图标
+          <i class="fa fa-plus-circle" style="color: var(--accent);"></i> 添加应用图标
         </h3>
         <button class="btn btn-secondary btn-icon" id="btnCloseEditModal">&times;</button>
       </div>
       <div class="modal-body">
-        <form id="iconForm">
+        <form id="iconForm" onsubmit="return false;">
           <input type="hidden" id="fieldId">
           <input type="hidden" id="fieldLanPic">
           <input type="hidden" id="fieldIconDataUrl">
           <input type="hidden" id="fieldAppname">
           <input type="hidden" id="fieldFnAppicon">
 
-          <div class="form-group">
-            <label class="form-label">从 Docker 容器快捷导入</label>
-            <select class="form-control" id="dockerSelect">
-              <option value="">-- 选择运行中的 Docker 容器一键填入 --</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">* 图标名称 / 应用标题</label>
-            <input type="text" class="form-control" id="fieldTitle" required placeholder="如：Jellyfin、青龙面板、Alist">
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">打开方式</label>
-              <select class="form-control" id="fieldOpenInPage">
-                <option value="0">新标签页打开 (URL)</option>
-                <option value="1">飞牛页内窗口打开 (Iframe)</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">访问协议</label>
-              <select class="form-control" id="fieldProtocol">
-                <option value="0">自动跟随系统 (HTTP/HTTPS)</option>
-                <option value="1">强制 HTTP</option>
-                <option value="2">强制 HTTPS</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">* 访问端口或地址 (局域网)</label>
-            <input type="text" class="form-control" id="fieldLan" placeholder="直接填端口号（如：3500）或完整内网地址">
-            <div class="form-hint">直接填写端口号可在飞牛 FN Connect 远程访问时自动映射打通。</div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">公网外部地址 (可选)</label>
-            <input type="text" class="form-control" id="fieldWan" placeholder="https://nas.example.com:8443">
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">应用图标定制</label>
-            <div style="display: flex; gap: 14px; align-items: center;">
-              <div class="icon-img-box" id="formIconPreviewBox">
-                <img id="formIconPreview" src="static/icon.png" alt="Preview">
+          <div class="modal-two-col">
+            <!-- 左列：应用基础配置 -->
+            <div class="modal-col-form">
+              <div class="form-group">
+                <label class="form-label"><i class="fa fa-docker" style="color: var(--accent);"></i> 从 Docker 容器一键导入</label>
+                <select class="form-control" id="dockerSelect">
+                  <option value="">-- 选择运行中的 Docker 容器一键填入 --</option>
+                </select>
               </div>
-              <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                <button type="button" class="btn btn-secondary btn-sm" id="btnSniffFavicon">
-                  <i class="fa fa-globe"></i> 抓取 Favicon
+
+              <div class="form-group">
+                <label class="form-label">* 应用名称 / 图标标题</label>
+                <input type="text" class="form-control" id="fieldTitle" required placeholder="如：Jellyfin、青龙、New-API、Alist">
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">打开方式</label>
+                  <select class="form-control" id="fieldOpenInPage">
+                    <option value="0">新标签页打开 (URL)</option>
+                    <option value="1">飞牛页内窗口打开 (Iframe)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">访问协议</label>
+                  <select class="form-control" id="fieldProtocol">
+                    <option value="0">自动跟随 (HTTP/HTTPS)</option>
+                    <option value="1">强制 HTTP</option>
+                    <option value="2">强制 HTTPS</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">* 局域网访问端口或地址</label>
+                <input type="text" class="form-control" id="fieldLan" placeholder="直接填端口（如：3000）或完整内网 URL">
+                <div class="form-hint" id="lanHint" style="color: var(--accent); font-weight: 500;">
+                  填入端口号可自动适配飞牛 FN Connect 远程访问穿透。
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">公网外部地址 (可选)</label>
+                <input type="text" class="form-control" id="fieldWan" placeholder="https://nas.example.com:8443">
+              </div>
+
+              <div class="switch-card" id="cardNativeSwitch">
+                <div class="switch-card-info">
+                  <div class="switch-card-title">
+                    <i class="fa fa-cube"></i> 同步注册为飞牛原生应用 (Native App)
+                  </div>
+                  <div class="switch-card-desc">
+                    生成系统独立套件，桌面、手机 App、FN Connect 全端同步显现，可随时在应用中心独立卸载。
+                  </div>
+                </div>
+                <input type="checkbox" id="fieldGenerateNative" checked style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent);">
+              </div>
+            </div>
+
+            <!-- 右列：图标工坊与实景预览一体化 -->
+            <div class="modal-col-studio">
+              <!-- 飞牛桌面实景模拟器 -->
+              <div class="desktop-mockup-wrapper">
+                <canvas id="studioCanvas" width="256" height="256" class="mockup-icon-canvas"></canvas>
+                <div class="mockup-label" id="mockupTitle">应用标题</div>
+              </div>
+
+              <!-- 快捷获取动作 -->
+              <div style="display: flex; gap: 8px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btnSniffFavicon" style="flex: 1;" title="根据填写的端口或地址自动嗅探网站高清图标">
+                  <i class="fa fa-globe"></i> <span>抓取 Favicon</span>
                 </button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btnUploadLocal">
-                  <i class="fa fa-upload"></i> 上传图片
-                </button>
-                <button type="button" class="btn btn-primary btn-sm" id="btnOpenStudio">
-                  <i class="fa fa-magic"></i> 打开图标工坊
+                <button type="button" class="btn btn-secondary btn-sm" id="btnUploadLocal" style="flex: 1;" title="上传本地图片或 SVG">
+                  <i class="fa fa-upload"></i> <span>上传图片</span>
                 </button>
                 <input type="file" id="localFileInput" accept="image/*" style="display: none;">
               </div>
+
+              <!-- 预设常用品牌库一键选用 -->
+              <div>
+                <div class="form-label" style="margin-bottom: 6px;">快速选用常用图标</div>
+                <div class="preset-chips-scroll" id="presetChipsContainer">
+                  <!-- 动态填充 -->
+                </div>
+              </div>
+
+              <!-- 形状微调 -->
+              <div>
+                <div class="form-label" style="margin-bottom: 6px;">图标遮罩风格</div>
+                <div class="segmented-control" id="shapeSelector" style="width: 100%;">
+                  <button class="segmented-btn active" data-shape="squircle" style="flex: 1;">仿苹果 Squircle</button>
+                  <button class="segmented-btn" data-shape="circle" style="flex: 1;">极简正圆</button>
+                  <button class="segmented-btn" data-shape="round" style="flex: 1;">圆角矩形</button>
+                  <button class="segmented-btn" data-shape="none" style="flex: 1;">原图无裁切</button>
+                </div>
+              </div>
+
+              <!-- 留白内边距与 Logo 缩放 -->
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <div class="slider-group">
+                  <span class="form-label" style="width: 60px;">留白边距</span>
+                  <input type="range" id="sliderPadding" min="0" max="35" value="12">
+                  <span class="slider-val" id="valPadding">12%</span>
+                </div>
+                <div class="slider-group">
+                  <span class="form-label" style="width: 60px;">Logo缩放</span>
+                  <input type="range" id="sliderScale" min="30" max="180" value="85">
+                  <span class="slider-val" id="valScale">85%</span>
+                </div>
+              </div>
+
+              <!-- 底色板 -->
+              <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <span class="form-label">背景底色</span>
+                  <span id="selectedBgLabel" style="font-size: 0.72rem; color: var(--accent); font-family: monospace;">透明</span>
+                </div>
+                <div class="palette-grid" id="paletteGrid">
+                  <!-- 纯色与高级渐变 -->
+                </div>
+              </div>
+
+              <!-- 柔和投影 -->
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.76rem; color: var(--text-muted); cursor: pointer;">
+                <input type="checkbox" id="checkLogoShadow" checked style="accent-color: var(--accent);">
+                <span>开启 Logo 柔和层次投影 (让白色/扁平标志更立体)</span>
+              </label>
             </div>
           </div>
         </form>
@@ -168,159 +236,21 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" id="btnCancelEdit">取消</button>
         <button type="button" class="btn btn-primary" id="btnSaveIcon">
-          <i class="fa fa-check"></i> 保存配置
+          <i class="fa fa-check"></i> 保存并应用
         </button>
       </div>
     </div>
   </div>
 
-  <!-- 专业图标工坊 (Icon Studio Canvas Editor) 模态框 -->
-  <div class="modal-overlay" id="studioModal">
-    <div class="modal modal-lg">
-      <div class="modal-header">
-        <h3 class="modal-title">
-          <i class="fa fa-paint-brush"></i> 专业图标工坊 (Icon Studio)
-        </h3>
-        <button class="btn btn-secondary btn-icon" id="btnCloseStudio">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="studio-container">
-          <!-- 左侧：画布与实景效果预览 -->
-          <div class="studio-preview-pane">
-            <div class="canvas-wrapper checkerboard" id="canvasWrapper">
-              <canvas id="studioCanvas" width="512" height="512"></canvas>
-            </div>
-            
-            <div class="desktop-mockup" id="desktopMockup">
-              <img id="mockupIconImg" src="" style="width: 54px; height: 54px; border-radius: 14px;">
-              <div class="desktop-mockup-label" id="mockupTitle">应用标题</div>
-            </div>
-
-            <div style="margin-top: 12px; display: flex; gap: 8px;">
-              <button class="btn btn-secondary btn-sm" id="btnApplyAppleStyle">
-                <i class="fa fa-apple"></i> 苹果 Squircle 风格
-              </button>
-              <button class="btn btn-secondary btn-sm" id="btnApplyCircleStyle">
-                <i class="fa fa-circle-o"></i> 极简正圆
-              </button>
-            </div>
-          </div>
-
-          <!-- 右侧：设计工具面板 -->
-          <div class="studio-controls-pane">
-            <!-- 1. 形状遮罩 -->
-            <div>
-              <div class="control-section-title"><i class="fa fa-shapes"></i> 形状遮罩</div>
-              <div class="segmented-control" id="shapeSelector">
-                <button class="segmented-btn active" data-shape="squircle">仿苹果 Squircle</button>
-                <button class="segmented-btn" data-shape="round">圆角矩形</button>
-                <button class="segmented-btn" data-shape="circle">正圆形</button>
-                <button class="segmented-btn" data-shape="none">原图无裁切</button>
-              </div>
-            </div>
-
-            <!-- 2. 缩放与留白 -->
-            <div>
-              <div class="control-section-title"><i class="fa fa-arrows-alt"></i> 缩放与留白边距</div>
-              <div class="form-group" style="margin-bottom: 8px;">
-                <div class="slider-group">
-                  <span style="font-size: 0.8rem; color: var(--text-muted); width: 60px;">Logo缩放</span>
-                  <input type="range" id="sliderScale" min="20" max="180" value="85">
-                  <span class="slider-val" id="valScale">85%</span>
-                </div>
-              </div>
-              <div class="form-group" style="margin-bottom: 8px;">
-                <div class="slider-group">
-                  <span style="font-size: 0.8rem; color: var(--text-muted); width: 60px;">内边距留白</span>
-                  <input type="range" id="sliderPadding" min="0" max="40" value="12">
-                  <span class="slider-val" id="valPadding">12%</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 3. 底色填充 -->
-            <div>
-              <div class="control-section-title"><i class="fa fa-tint"></i> 底色填充模式</div>
-              <div class="segmented-control" id="bgModeSelector" style="margin-bottom: 10px;">
-                <button class="segmented-btn active" data-bg="color">纯色背景</button>
-                <button class="segmented-btn" data-bg="gradient">渐变背景</button>
-                <button class="segmented-btn" data-bg="transparent">透明背景</button>
-              </div>
-
-              <!-- 纯色控制 -->
-              <div id="solidBgControls">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <input type="color" id="solidColorPicker" value="#1e293b" style="width: 40px; height: 32px; border-radius: 6px; cursor: pointer; border: none;">
-                  <span style="font-size: 0.82rem; color: var(--text-muted);" id="solidColorHex">#1e293b</span>
-                </div>
-                <div class="palette-grid" id="palettePreset">
-                  <!-- 快捷品牌色板 -->
-                  <div class="color-swatch" style="background:#0db7ed;" data-color="#0db7ed" title="Docker Blue"></div>
-                  <div class="color-swatch" style="background:#00a4dc;" data-color="#00a4dc" title="Jellyfin Cyan"></div>
-                  <div class="color-swatch" style="background:#e5a00d;" data-color="#e5a00d" title="Plex Gold"></div>
-                  <div class="color-swatch" style="background:#13bef9;" data-color="#13bef9" title="Portainer Teal"></div>
-                  <div class="color-swatch" style="background:#2563eb;" data-color="#2563eb" title="fnOS Blue"></div>
-                  <div class="color-swatch" style="background:#10b981;" data-color="#10b981" title="Mint Green"></div>
-                  <div class="color-swatch" style="background:#8b5cf6;" data-color="#8b5cf6" title="Purple"></div>
-                  <div class="color-swatch" style="background:#f43f5e;" data-color="#f43f5e" title="Rose Red"></div>
-                  <div class="color-swatch" style="background:#1e293b;" data-color="#1e293b" title="Slate Dark"></div>
-                  <div class="color-swatch" style="background:#0f172a;" data-color="#0f172a" title="Onyx Black"></div>
-                  <div class="color-swatch" style="background:#ffffff;" data-color="#ffffff" title="Pure White"></div>
-                </div>
-              </div>
-
-              <!-- 渐变控制 -->
-              <div id="gradientBgControls" style="display: none;">
-                <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
-                  <input type="color" id="gradColor1" value="#3b82f6" style="width: 36px; height: 30px; border-radius: 6px; border:none;">
-                  <span style="color:var(--text-muted); font-size:0.8rem;">至</span>
-                  <input type="color" id="gradColor2" value="#8b5cf6" style="width: 36px; height: 30px; border-radius: 6px; border:none;">
-                  <select class="form-control" id="gradAngle" style="width: 100px; padding: 4px 8px; font-size: 0.8rem;">
-                    <option value="135">135° 对角</option>
-                    <option value="90">90° 水平</option>
-                    <option value="180">180° 垂直</option>
-                    <option value="45">45° 斜角</option>
-                  </select>
-                </div>
-                <div class="palette-grid">
-                  <div class="color-swatch" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);" data-grad="#3b82f6,#8b5cf6" title="蓝紫幻境"></div>
-                  <div class="color-swatch" style="background:linear-gradient(135deg,#06b6d4,#3b82f6);" data-grad="#06b6d4,#3b82f6" title="深海星光"></div>
-                  <div class="color-swatch" style="background:linear-gradient(135deg,#f43f5e,#fb923c);" data-grad="#f43f5e,#fb923c" title="落日暖阳"></div>
-                  <div class="color-swatch" style="background:linear-gradient(135deg,#10b981,#06b6d4);" data-grad="#10b981,#06b6d4" title="极光青绿"></div>
-                  <div class="color-swatch" style="background:linear-gradient(135deg,#1e293b,#0f172a);" data-grad="#1e293b,#0f172a" title="暗夜深空"></div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 4. 视觉立体投影 -->
-            <div>
-              <div class="control-section-title"><i class="fa fa-sun-o"></i> 视觉特效</div>
-              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
-                <input type="checkbox" id="checkLogoShadow" checked>
-                <span>开启 Logo 柔和层次投影 (让白色或扁平标志更立体)</span>
-              </label>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" id="btnCancelStudio">取消</button>
-        <button type="button" class="btn btn-primary" id="btnApplyStudio">
-          <i class="fa fa-magic"></i> 完成编辑并应用
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 设置与修改密码模态框 -->
+  <!-- 设置与管理密码模态框 -->
   <div class="modal-overlay" id="settingsModal">
-    <div class="modal">
+    <div class="modal" style="max-width: 460px;">
       <div class="modal-header">
-        <h3 class="modal-title"><i class="fa fa-cog"></i> 套件设置与管理密码</h3>
+        <h3 class="modal-title"><i class="fa fa-cog" style="color: var(--accent);"></i> 套件设置与管理密码</h3>
         <button class="btn btn-secondary btn-icon" id="btnCloseSettings">&times;</button>
       </div>
       <div class="modal-body">
-        <form id="passwordForm">
+        <form id="passwordForm" onsubmit="return false;">
           <div class="form-group" id="oldPasswordGroup">
             <label class="form-label">当前管理密码</label>
             <input type="password" class="form-control" id="oldPassword" placeholder="首次使用可留空">
@@ -335,12 +265,12 @@
           </div>
         </form>
 
-        <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
-          <div class="control-section-title">系统与运行信息</div>
-          <div style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.8;">
-            <div>套件模式：Fndesk Lite（原生应用 + 桌面快捷方式双模式）</div>
-            <div>后端服务：Node.js 原生轻量服务（已剥离闭源 Go 程序）</div>
-            <div>原生应用管理：支持由 <code>appcenter-cli</code> 独立安装与干净卸载</div>
+        <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
+          <div class="form-label" style="margin-bottom: 6px;">系统与套件信息</div>
+          <div style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.8;">
+            <div>套件模式：Fndesk Lite v2.0（飞牛原生应用 + 桌面快捷方式双模式）</div>
+            <div>后端运行：纯开源 Node.js 原生服务（无闭源二进制）</div>
+            <div>局域网 IP：<span id="settingsLanIp" style="color: var(--accent); font-family: monospace;">-</span></div>
           </div>
         </div>
       </div>
@@ -353,17 +283,17 @@
     </div>
   </div>
 
-  <!-- 登录模态框 -->
+  <!-- 登录认证模态框 -->
   <div class="modal-overlay" id="loginModal">
-    <div class="modal" style="max-width: 400px;">
+    <div class="modal" style="max-width: 380px;">
       <div class="modal-header">
-        <h3 class="modal-title"><i class="fa fa-lock"></i> 管理员登录</h3>
+        <h3 class="modal-title"><i class="fa fa-lock" style="color: var(--accent);"></i> 管理员认证</h3>
       </div>
       <div class="modal-body">
-        <form id="loginForm">
+        <form id="loginForm" onsubmit="return false;">
           <div class="form-group">
             <label class="form-label">请输入管理密码</label>
-            <input type="password" class="form-control" id="loginPassword" autofocus required placeholder="输入密码">
+            <input type="password" class="form-control" id="loginPassword" autofocus required placeholder="输入管理密码">
           </div>
         </form>
       </div>
@@ -375,10 +305,10 @@
     </div>
   </div>
 
-  <!-- Toast 提示容器 -->
+  <!-- Toast 消息容器 -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <!-- 引入业务脚本 -->
+  <!-- 业务脚本 -->
   <script src="app.js"></script>
 </body>
 </html>
