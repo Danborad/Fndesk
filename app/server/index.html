@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fndesk Lite - 飞牛桌面图标工坊</title>
+  <title>Fndesk Lite - 飞牛桌面图标工坊与 WeTab 小组件</title>
   <link rel="icon" href="favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="fonts/font-awesome.min.css">
   <link rel="stylesheet" href="style.css">
@@ -18,8 +18,22 @@
         <span>Fndesk Lite</span>
         <span class="badge-version">v2.0 Lite</span>
       </div>
+      <div class="desktop-status-badge" id="badgeDesktopStatus" title="飞牛桌面注入状态">
+        <span class="status-dot"></span>
+        <span id="textDesktopStatus">检查中...</span>
+      </div>
     </div>
     <div class="nav-actions">
+      <!-- 立即生效与一键还原桌面防搞坏操作按钮 -->
+      <button class="btn btn-apply btn-sm" id="btnApplyDesktop" title="将配置好的小组件和快捷图标立即挂载到飞牛桌面">
+        <i class="fa fa-bolt"></i> <span>立即生效</span>
+      </button>
+      <button class="btn btn-restore btn-sm" id="btnRestoreDesktop" title="安全防搞坏：一键还原官方纯净桌面，移除所有注入">
+        <i class="fa fa-history"></i> <span>还原桌面</span>
+      </button>
+
+      <div class="nav-divider"></div>
+
       <button class="btn btn-secondary btn-sm" id="btnRefresh" title="刷新列表">
         <i class="fa fa-refresh" id="refreshIcon"></i> <span>刷新</span>
       </button>
@@ -27,7 +41,10 @@
         <i class="fa fa-cog"></i> <span>设置</span>
       </button>
       <button class="btn btn-primary btn-sm" id="btnAddIcon">
-        <i class="fa fa-plus"></i> <span>添加应用图标</span>
+        <i class="fa fa-plus"></i> <span>添加图标</span>
+      </button>
+      <button class="btn btn-primary-soft btn-sm" id="btnAddWidget">
+        <i class="fa fa-cubes"></i> <span>添加卡片</span>
       </button>
       <button class="btn btn-secondary btn-sm" id="btnLogout" title="退出登录" style="display:none;">
         <i class="fa fa-sign-out"></i>
@@ -55,9 +72,18 @@
           <div class="stat-label">飞牛原生应用</div>
         </div>
       </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background: rgba(168, 85, 247, 0.12); color: #c084fc;">
+          <i class="fa fa-clone"></i>
+        </div>
+        <div>
+          <div class="stat-value" id="statTotalWidgets">0</div>
+          <div class="stat-label">WeTab 桌面卡片</div>
+        </div>
+      </div>
       <div class="stat-card" style="cursor: pointer;" id="cardDockerStat" title="点击查看运行中 Docker 容器">
         <div class="stat-icon" style="background: rgba(56, 189, 248, 0.12); color: var(--accent);">
-          <i class="fa fa-cubes"></i>
+          <i class="fa fa-cube"></i>
         </div>
         <div>
           <div class="stat-value" id="statDockerContainers">-</div>
@@ -66,31 +92,64 @@
       </div>
     </section>
 
-    <!-- 工具与筛选条 -->
-    <section class="toolbar">
-      <div class="search-box">
-        <i class="fa fa-search"></i>
-        <input type="text" id="searchInput" placeholder="搜索应用名称、端口或访问地址...">
-      </div>
-      <div class="segmented-control" id="filterSegment">
-        <button class="segmented-btn active" data-filter="all">全部图标</button>
-        <button class="segmented-btn" data-filter="native">飞牛原生应用</button>
-        <button class="segmented-btn" data-filter="shortcut">桌面快捷方式</button>
+    <!-- 主视图 Tab 导航切换 -->
+    <section class="tab-nav-wrapper">
+      <div class="segmented-control main-tabs" id="mainTabs">
+        <button class="segmented-btn active" data-tab="icons">
+          <i class="fa fa-th-large"></i> <span>应用图标工坊</span>
+        </button>
+        <button class="segmented-btn" data-tab="widgets">
+          <i class="fa fa-window-restore"></i> <span>WeTab 桌面卡片 (大中小小组件)</span>
+        </button>
       </div>
     </section>
 
-    <!-- 图标网格展示 -->
-    <section class="icon-grid" id="iconGrid">
-      <!-- 动态加载填充 -->
-    </section>
+    <!-- TAB 1: 应用图标视图 -->
+    <div id="tabViewIcons">
+      <!-- 工具与筛选条 -->
+      <section class="toolbar">
+        <div class="search-box">
+          <i class="fa fa-search"></i>
+          <input type="text" id="searchInput" placeholder="搜索应用名称、端口或访问地址...">
+        </div>
+        <div class="segmented-control" id="filterSegment">
+          <button class="segmented-btn active" data-filter="all">全部图标</button>
+          <button class="segmented-btn" data-filter="native">飞牛原生应用</button>
+          <button class="segmented-btn" data-filter="shortcut">桌面快捷方式</button>
+        </div>
+      </section>
+
+      <!-- 图标网格展示 -->
+      <section class="icon-grid" id="iconGrid">
+        <!-- 动态加载填充 -->
+      </section>
+    </div>
+
+    <!-- TAB 2: WeTab 桌面小组件卡片视图 -->
+    <div id="tabViewWidgets" style="display: none;">
+      <section class="widgets-header-bar">
+        <div class="widgets-header-info">
+          <div class="widgets-title"><i class="fa fa-magic" style="color: var(--accent);"></i> WeTab 桌面卡片小组件库</div>
+          <div class="widgets-subtitle">支持倒计时、纪念日、实时天气、数字翻页时钟、便签，大 (2x2)、中 (2x1)、小 (1x1) 随意切换</div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btnAddNewWidget">
+          <i class="fa fa-plus"></i> <span>添加小组件卡片</span>
+        </button>
+      </section>
+
+      <!-- 小组件网格 -->
+      <section class="widget-admin-grid" id="widgetAdminGrid">
+        <!-- 动态渲染已配置卡片 -->
+      </section>
+    </div>
   </main>
 
-  <!-- 现代化应用图标与工坊一体化模态框 (双列设计，告别滚动条) -->
+  <!-- WeTab 风格图标裁剪与应用配置一体化模态框 (完全参考图 3) -->
   <div class="modal-overlay" id="editModal">
     <div class="modal modal-lg">
       <div class="modal-header">
         <h3 class="modal-title" id="editModalTitle">
-          <i class="fa fa-plus-circle" style="color: var(--accent);"></i> 添加应用图标
+          <i class="fa fa-crop" style="color: var(--accent);"></i> 图标裁剪与应用配置
         </h3>
         <button class="btn btn-secondary btn-icon" id="btnCloseEditModal">&times;</button>
       </div>
@@ -117,6 +176,19 @@
                 <input type="text" class="form-control" id="fieldTitle" required placeholder="如：Jellyfin、青龙、New-API、Alist">
               </div>
 
+              <div class="form-group">
+                <label class="form-label">* 局域网访问端口或地址</label>
+                <input type="text" class="form-control" id="fieldLan" placeholder="直接填端口（如：3000）或完整内网 URL">
+                <div class="form-hint" id="lanHint" style="color: var(--accent); font-weight: 500;">
+                  填入端口号自动适配飞牛 FN Connect 远程访问穿透。
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">公网外部地址 (可选)</label>
+                <input type="text" class="form-control" id="fieldWan" placeholder="https://nas.example.com:8443">
+              </div>
+
               <div class="form-row">
                 <div class="form-group">
                   <label class="form-label">打开方式</label>
@@ -135,108 +207,222 @@
                 </div>
               </div>
 
-              <div class="form-group">
-                <label class="form-label">* 局域网访问端口或地址</label>
-                <input type="text" class="form-control" id="fieldLan" placeholder="直接填端口（如：3000）或完整内网 URL">
-                <div class="form-hint" id="lanHint" style="color: var(--accent); font-weight: 500;">
-                  填入端口号可自动适配飞牛 FN Connect 远程访问穿透。
-                </div>
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">公网外部地址 (可选)</label>
-                <input type="text" class="form-control" id="fieldWan" placeholder="https://nas.example.com:8443">
-              </div>
-
               <div class="switch-card" id="cardNativeSwitch">
                 <div class="switch-card-info">
                   <div class="switch-card-title">
                     <i class="fa fa-cube"></i> 同步注册为飞牛原生应用 (Native App)
                   </div>
                   <div class="switch-card-desc">
-                    生成系统独立套件，桌面、手机 App、FN Connect 全端同步显现，可随时在应用中心独立卸载。
+                    生成系统独立套件，桌面、手机 App、FN Connect 同步显现，可随时在应用中心独立卸载。
                   </div>
                 </div>
                 <input type="checkbox" id="fieldGenerateNative" checked style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent);">
               </div>
             </div>
 
-            <!-- 右列：图标工坊与实景预览一体化 -->
-            <div class="modal-col-studio">
-              <!-- 飞牛桌面实景模拟器 -->
-              <div class="desktop-mockup-wrapper">
-                <canvas id="studioCanvas" width="256" height="256" class="mockup-icon-canvas"></canvas>
-                <div class="mockup-label" id="mockupTitle">应用标题</div>
+            <!-- 右列：WeTab 图标裁剪工坊 (图 3 同款极致简约) -->
+            <div class="modal-col-studio wetab-cropper-col">
+              <div class="cropper-top-bar">
+                <div class="cropper-title">图标裁剪（统一飞牛原生圆角）</div>
+                <div class="cropper-actions">
+                  <button type="button" class="btn btn-secondary btn-xs" id="btnSniffFavicon" title="根据填写的端口或地址自动抓取网站高清图标">
+                    <i class="fa fa-globe"></i> <span>抓取 Favicon</span>
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-xs" id="btnUploadLocal" title="上传本地图片或 SVG">
+                    <i class="fa fa-upload"></i> <span>本地上传</span>
+                  </button>
+                  <input type="file" id="localFileInput" accept="image/*" style="display: none;">
+                </div>
               </div>
 
-              <!-- 快捷获取动作 -->
-              <div style="display: flex; gap: 8px;">
-                <button type="button" class="btn btn-secondary btn-sm" id="btnSniffFavicon" style="flex: 1;" title="根据填写的端口或地址自动嗅探网站高清图标">
-                  <i class="fa fa-globe"></i> <span>抓取 Favicon</span>
+              <!-- WeTab 风格带裁剪框的 Canvas -->
+              <div class="wetab-canvas-wrapper" id="canvasContainer">
+                <canvas id="studioCanvas" width="256" height="256" class="wetab-crop-canvas"></canvas>
+                <!-- 白色四角裁切导向框 (图 3 同款) -->
+                <div class="wetab-crop-frame" id="cropFrame">
+                  <div class="crop-corner top-left"></div>
+                  <div class="crop-corner top-right"></div>
+                  <div class="crop-corner bottom-left"></div>
+                  <div class="crop-corner bottom-right"></div>
+                </div>
+              </div>
+
+              <!-- 工具按钮控制行 (图 3 同款：逆时针、顺时针、重置、缩小、放大) -->
+              <div class="wetab-tool-row">
+                <button type="button" class="wetab-tool-btn" id="btnRotateCCW" title="逆时针旋转 90°">
+                  <i class="fa fa-rotate-left"></i>
                 </button>
-                <button type="button" class="btn btn-secondary btn-sm" id="btnUploadLocal" style="flex: 1;" title="上传本地图片或 SVG">
-                  <i class="fa fa-upload"></i> <span>上传图片</span>
+                <button type="button" class="wetab-tool-btn" id="btnRotateCW" title="顺时针旋转 90°">
+                  <i class="fa fa-rotate-right"></i>
                 </button>
-                <input type="file" id="localFileInput" accept="image/*" style="display: none;">
+                <button type="button" class="wetab-tool-btn" id="btnResetCrop" title="重置位置与缩放">
+                  <i class="fa fa-refresh"></i>
+                </button>
+                <button type="button" class="wetab-tool-btn" id="btnZoomOut" title="缩小 (或鼠标滚轮)">
+                  <i class="fa fa-search-minus"></i>
+                </button>
+                <button type="button" class="wetab-tool-btn" id="btnZoomIn" title="放大 (或鼠标滚轮)">
+                  <i class="fa fa-search-plus"></i>
+                </button>
               </div>
 
-              <!-- 预设常用品牌库一键选用 -->
-              <div>
-                <div class="form-label" style="margin-bottom: 6px;">快速选用常用图标</div>
-                <div class="preset-chips-scroll" id="presetChipsContainer">
-                  <!-- 动态填充 -->
-                </div>
-              </div>
-
-              <!-- 形状微调 -->
-              <div>
-                <div class="form-label" style="margin-bottom: 6px;">图标遮罩风格</div>
-                <div class="segmented-control" id="shapeSelector" style="width: 100%;">
-                  <button class="segmented-btn active" data-shape="squircle" style="flex: 1;">仿苹果 Squircle</button>
-                  <button class="segmented-btn" data-shape="circle" style="flex: 1;">极简正圆</button>
-                  <button class="segmented-btn" data-shape="round" style="flex: 1;">圆角矩形</button>
-                  <button class="segmented-btn" data-shape="none" style="flex: 1;">原图无裁切</button>
+              <!-- WeTab 图 3 同款整齐两排圆点底色调色盘 -->
+              <div class="wetab-palette-section">
+                <div class="wetab-palette-dots" id="paletteDots">
+                  <!-- JS 动态注入两排标准圆点 -->
                 </div>
               </div>
 
-              <!-- 留白内边距与 Logo 缩放 -->
-              <div style="display: flex; flex-direction: column; gap: 6px;">
-                <div class="slider-group">
-                  <span class="form-label" style="width: 60px;">留白边距</span>
-                  <input type="range" id="sliderPadding" min="0" max="35" value="12">
-                  <span class="slider-val" id="valPadding">12%</span>
-                </div>
-                <div class="slider-group">
-                  <span class="form-label" style="width: 60px;">Logo缩放</span>
-                  <input type="range" id="sliderScale" min="30" max="180" value="85">
-                  <span class="slider-val" id="valScale">85%</span>
+              <!-- 完成保存大按钮 -->
+              <button type="button" class="btn btn-primary btn-wetab-done" id="btnSaveIcon">
+                完成
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end;">
+        <button type="button" class="btn btn-secondary" id="btnCancelEdit">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WeTab 小组件卡片配置模态框 (支持大中小尺寸与实时卡片预览) -->
+  <div class="modal-overlay" id="widgetModal">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 class="modal-title" id="widgetModalTitle">
+          <i class="fa fa-sliders" style="color: var(--accent);"></i> 配置 WeTab 桌面卡片
+        </h3>
+        <button class="btn btn-secondary btn-icon" id="btnCloseWidgetModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="widgetForm" onsubmit="return false;">
+          <input type="hidden" id="widgetFieldId">
+
+          <div class="modal-two-col">
+            <!-- 左列：小组件类型与参数 -->
+            <div class="modal-col-form">
+              <!-- 类型选择 -->
+              <div class="form-group">
+                <label class="form-label">* 卡片小组件类型</label>
+                <div class="segmented-control" id="widgetTypeSelector" style="width: 100%;">
+                  <button type="button" class="segmented-btn active" data-type="weather">⛅ 实时天气</button>
+                  <button type="button" class="segmented-btn" data-type="countdown">⏳ 倒计时/纪念日</button>
+                  <button type="button" class="segmented-btn" data-type="clock">🕒 数字时钟</button>
+                  <button type="button" class="segmented-btn" data-type="notes">📝 便签备忘</button>
                 </div>
               </div>
 
-              <!-- 底色板 -->
-              <div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                  <span class="form-label">背景底色</span>
-                  <span id="selectedBgLabel" style="font-size: 0.72rem; color: var(--accent); font-family: monospace;">透明</span>
-                </div>
-                <div class="palette-grid" id="paletteGrid">
-                  <!-- 纯色与高级渐变 -->
+              <!-- 尺寸选择 (大中小) -->
+              <div class="form-group">
+                <label class="form-label">* 卡片尺寸形态</label>
+                <div class="segmented-control" id="widgetSizeSelector" style="width: 100%;">
+                  <button type="button" class="segmented-btn" data-size="small">小 (1x1)</button>
+                  <button type="button" class="segmented-btn active" data-size="medium">中 (2x1 推荐)</button>
+                  <button type="button" class="segmented-btn" data-size="large">大 (2x2 看板)</button>
                 </div>
               </div>
 
-              <!-- 柔和投影 -->
-              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.76rem; color: var(--text-muted); cursor: pointer;">
-                <input type="checkbox" id="checkLogoShadow" checked style="accent-color: var(--accent);">
-                <span>开启 Logo 柔和层次投影 (让白色/扁平标志更立体)</span>
-              </label>
+              <!-- 动态表单组：天气 -->
+              <div id="groupWeather" class="widget-field-group">
+                <div class="form-group">
+                  <label class="form-label">* 城市地区名称</label>
+                  <input type="text" class="form-control" id="fieldWeatherCity" placeholder="如：北京、上海、重庆、渝北区">
+                  <div class="form-hint">支持全国各省市县区，将实时抓取温度与气象。</div>
+                </div>
+              </div>
+
+              <!-- 动态表单组：倒计时 -->
+              <div id="groupCountdown" class="widget-field-group" style="display: none;">
+                <div class="form-group">
+                  <label class="form-label">* 事件名称 / 纪念日标题</label>
+                  <input type="text" class="form-control" id="fieldCdTitle" placeholder="如：国庆节倒计时、发薪日、考研">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">* 目标日期与时间</label>
+                  <input type="datetime-local" class="form-control" id="fieldCdDate">
+                </div>
+              </div>
+
+              <!-- 动态表单组：时钟 -->
+              <div id="groupClock" class="widget-field-group" style="display: none;">
+                <div class="form-group">
+                  <label class="form-label">时钟样式风格</label>
+                  <select class="form-control" id="fieldClockStyle">
+                    <option value="digital">现代大字数字翻页时钟</option>
+                    <option value="calendar">公历日历与时钟融合</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- 动态表单组：便签 -->
+              <div id="groupNotes" class="widget-field-group" style="display: none;">
+                <div class="form-group">
+                  <label class="form-label">便签标题</label>
+                  <input type="text" class="form-control" id="fieldNotesTitle" placeholder="如：今日待办清单">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">便签备忘内容</label>
+                  <textarea class="form-control" id="fieldNotesContent" rows="4" placeholder="写下你的待办事项或灵感..."></textarea>
+                </div>
+              </div>
+
+              <!-- 卡片质感主题预设 -->
+              <div class="form-group">
+                <label class="form-label">卡片背景质感主题</label>
+                <select class="form-control" id="fieldWidgetTheme">
+                  <option value="glass">纯净毛玻璃 (Glass 默认)</option>
+                  <option value="dark">深邃暗黑 (Dark Night)</option>
+                  <option value="forest">翡翠深林 (Forest Green)</option>
+                  <option value="aurora">极光流彩 (Aurora Purple)</option>
+                  <option value="sunset">落日余晖 (Warm Sunset)</option>
+                  <option value="sky">蔚蓝天空 (Sky Blue)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 右列：实景卡片模拟预览 (所见即所得) -->
+            <div class="modal-col-studio" style="justify-content: center; align-items: center;">
+              <div class="form-label" style="margin-bottom: 8px;">WeTab 桌面实景卡片预览</div>
+              <div class="widget-preview-box" id="widgetLivePreviewWrapper">
+                <!-- 动态渲染卡片预览 -->
+              </div>
+              <div class="form-hint" style="text-align: center; margin-top: 10px;">
+                飞牛统一原生平滑圆角，实时跳动刷新。
+              </div>
             </div>
           </div>
         </form>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" id="btnCancelEdit">取消</button>
-        <button type="button" class="btn btn-primary" id="btnSaveIcon">
-          <i class="fa fa-check"></i> 保存并应用
+        <button type="button" class="btn btn-secondary" id="btnCancelWidget">取消</button>
+        <button type="button" class="btn btn-primary" id="btnSaveWidget">
+          <i class="fa fa-check"></i> 保存卡片小组件
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 安全还原桌面确认弹窗 (防搞坏保证) -->
+  <div class="modal-overlay" id="restoreConfirmModal">
+    <div class="modal" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="modal-title"><i class="fa fa-shield" style="color: var(--warning);"></i> 确认还原飞牛官方桌面？</h3>
+        <button class="btn btn-secondary btn-icon" id="btnCloseRestoreModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.88rem; color: var(--text-main); line-height: 1.6; margin-bottom: 12px;">
+          此操作将利用保留的官方备份文件，彻底移除飞牛桌面注入的所有 WeTab 小组件与桌面快捷方式代码，将 <code>/usr/trim/www/index.html</code> 100% 还原至官方初始出厂状态。
+        </p>
+        <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.5;">
+          你的图标和卡片配置数据仍将完好保存在本地，随时点击「立即生效」可重新挂载。
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btnCancelRestore">取消</button>
+        <button type="button" class="btn btn-restore" id="btnConfirmRestore">
+          <i class="fa fa-history"></i> 确认一键还原
         </button>
       </div>
     </div>
@@ -268,8 +454,8 @@
         <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
           <div class="form-label" style="margin-bottom: 6px;">系统与套件信息</div>
           <div style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.8;">
-            <div>套件模式：Fndesk Lite v2.0（飞牛原生应用 + 桌面快捷方式双模式）</div>
-            <div>后端运行：纯开源 Node.js 原生服务（无闭源二进制）</div>
+            <div>套件模式：Fndesk Lite v2.0（飞牛原生应用 + WeTab 小组件 + 桌面快捷方式）</div>
+            <div>安全防护：备份出厂 index.html，支持一键无痕还原</div>
             <div>局域网 IP：<span id="settingsLanIp" style="color: var(--accent); font-family: monospace;">-</span></div>
           </div>
         </div>

@@ -1,907 +1,1114 @@
-// Fndesk Lite - 前端核心交互与图标工坊引擎
-(function () {
-  "use strict";
+/**
+ * Fndesk Lite - 前端核心业务控制器
+ * 包含：WeTab 极简图标裁剪工坊、WeTab 桌面卡片组件管理、立即生效与还原桌面防搞坏机制
+ */
 
-  // 1. 动态确定网关与 API 根基路径 (核心：修复在飞牛桌面 iframe 嵌套时的路径与 404 错误)
-  const API_BASE = (function () {
-    const p = window.location.pathname;
-    if (p.includes("index.cgi")) {
-      const idx = p.indexOf("index.cgi");
-      return p.substring(0, idx + "index.cgi".length);
-    }
-    if (p.startsWith("/app/fndesk")) {
-      return "/app/fndesk";
-    }
-    return "";
-  })();
-
-  function resolveUrl(url) {
-    if (!url) return "";
-    if (/^https?:\/\//i.test(url) || url.startsWith("data:") || url.startsWith("blob:") || url.startsWith("//")) {
-      return url;
-    }
-    const clean = url.startsWith("/") ? url : "/" + url;
-    return API_BASE + clean;
+// API 根路径动态适配
+const API_BASE = (function() {
+  const p = window.location.pathname;
+  if (p.includes("index.cgi")) {
+    const idx = p.indexOf("index.cgi");
+    return p.substring(0, idx + 9) + "/api";
   }
+  if (window.location.port === "9990") {
+    return "/api";
+  }
+  return "/api";
+})();
 
-  // 全局状态管理
-  const state = {
-    token: localStorage.getItem("fndesk_token") || "",
-    icons: [],
-    dockerContainers: [],
-    presets: [],
-    lanIp: "127.0.0.1",
-    filter: "all",
-    searchQuery: "",
-    isSniffing: false
-  };
-
-  // 图标工坊画布编辑状态
-  const studioState = {
-    img: null,
-    shape: "squircle", // squircle | circle | round | none
-    scale: 0.85,
-    padding: 0.12,
-    bgType: "transparent", // transparent | solid | gradient
-    bgColor: "#1e293b",
-    bgGradient: ["#3b82f6", "#8b5cf6", 135],
-    shadow: true,
-    lastExportDataUrl: ""
-  };
-
-  // DOM 元素缓存
-  const dom = {
-    btnRefresh: document.getElementById("btnRefresh"),
-    refreshIcon: document.getElementById("refreshIcon"),
-    btnSettings: document.getElementById("btnSettings"),
-    btnAddIcon: document.getElementById("btnAddIcon"),
-    btnLogout: document.getElementById("btnLogout"),
-    statTotalIcons: document.getElementById("statTotalIcons"),
-    statNativeApps: document.getElementById("statNativeApps"),
-    statDockerContainers: document.getElementById("statDockerContainers"),
-    cardDockerStat: document.getElementById("cardDockerStat"),
-    searchInput: document.getElementById("searchInput"),
-    filterSegment: document.getElementById("filterSegment"),
-    iconGrid: document.getElementById("iconGrid"),
-
-    // 编辑弹窗
-    editModal: document.getElementById("editModal"),
-    editModalTitle: document.getElementById("editModalTitle"),
-    btnCloseEditModal: document.getElementById("btnCloseEditModal"),
-    btnCancelEdit: document.getElementById("btnCancelEdit"),
-    btnSaveIcon: document.getElementById("btnSaveIcon"),
-    dockerSelect: document.getElementById("dockerSelect"),
-    fieldId: document.getElementById("fieldId"),
-    fieldTitle: document.getElementById("fieldTitle"),
-    fieldOpenInPage: document.getElementById("fieldOpenInPage"),
-    fieldProtocol: document.getElementById("fieldProtocol"),
-    fieldLan: document.getElementById("fieldLan"),
-    lanHint: document.getElementById("lanHint"),
-    fieldWan: document.getElementById("fieldWan"),
-    fieldGenerateNative: document.getElementById("fieldGenerateNative"),
-    fieldLanPic: document.getElementById("fieldLanPic"),
-    fieldIconDataUrl: document.getElementById("fieldIconDataUrl"),
-    fieldAppname: document.getElementById("fieldAppname"),
-
-    // 工坊与预览一体化
-    studioCanvas: document.getElementById("studioCanvas"),
-    mockupTitle: document.getElementById("mockupTitle"),
-    btnSniffFavicon: document.getElementById("btnSniffFavicon"),
-    btnUploadLocal: document.getElementById("btnUploadLocal"),
-    localFileInput: document.getElementById("localFileInput"),
-    presetChipsContainer: document.getElementById("presetChipsContainer"),
-    shapeSelector: document.getElementById("shapeSelector"),
-    sliderPadding: document.getElementById("sliderPadding"),
-    valPadding: document.getElementById("valPadding"),
-    sliderScale: document.getElementById("sliderScale"),
-    valScale: document.getElementById("valScale"),
-    selectedBgLabel: document.getElementById("selectedBgLabel"),
-    paletteGrid: document.getElementById("paletteGrid"),
-    checkLogoShadow: document.getElementById("checkLogoShadow"),
-
-    // 设置与登录弹窗
-    settingsModal: document.getElementById("settingsModal"),
-    btnCloseSettings: document.getElementById("btnCloseSettings"),
-    btnCancelSettings: document.getElementById("btnCancelSettings"),
-    btnSavePassword: document.getElementById("btnSavePassword"),
-    oldPassword: document.getElementById("oldPassword"),
-    newPassword: document.getElementById("newPassword"),
-    confirmPassword: document.getElementById("confirmPassword"),
-    settingsLanIp: document.getElementById("settingsLanIp"),
-    loginModal: document.getElementById("loginModal"),
-    loginPassword: document.getElementById("loginPassword"),
-    btnSubmitLogin: document.getElementById("btnSubmitLogin"),
-    toastContainer: document.getElementById("toastContainer")
-  };
-
-  // API 通用调用函数
-  async function api(path, options = {}) {
-    const headers = { ...(options.headers || {}) };
-    if (state.token) {
-      headers["x-auth-token"] = state.token;
-      headers["Authorization"] = "Bearer " + state.token;
+// 通用 HTTP 请求助手
+async function fetchApi(endpoint, options = {}) {
+  const url = `${API_BASE}${endpoint}`;
+  try {
+    const token = localStorage.getItem("fndesk_token");
+    const headers = {
+      "Content-Type": "application/json",
+      ...(token ? { "x-auth-token": token } : {}),
+      ...(options.headers || {})
+    };
+    const res = await fetch(url, { credentials: "same-origin", ...options, headers });
+    if (res.status === 401) {
+      showLoginModal();
+      throw new Error("请先登录");
     }
-    if (options.body && typeof options.body === "object" && !(options.body instanceof FormData)) {
-      headers["Content-Type"] = "application/json";
-      options.body = JSON.stringify(options.body);
+    const data = await res.json();
+    if (!res.ok || data.success === false) {
+      throw new Error(data.message || `请求错误 HTTP ${res.status}`);
     }
+    return data;
+  } catch (err) {
+    console.error(`[API 异常] ${endpoint}:`, err);
+    throw err;
+  }
+}
 
-    const targetUrl = resolveUrl(path);
-    try {
-      const res = await fetch(targetUrl, { ...options, headers });
-      if (res.status === 401) {
-        openLoginModal();
-        throw new Error("未授权或登录已过期");
-      }
-      const rawText = await res.text();
-      let data;
-      try {
-        data = JSON.parse(rawText);
-      } catch (_) {
-        throw new Error(`服务器响应非 JSON (HTTP ${res.status}): ${rawText.slice(0, 80)}...`);
-      }
-      return data;
-    } catch (e) {
-      console.warn(`[API] ${path} 请求异常:`, e.message);
-      throw e;
+// Toast 提示
+function showToast(message, type = "info") {
+  const container = document.getElementById("toastContainer");
+  const el = document.createElement("div");
+  el.className = `toast toast-${type}`;
+  let icon = "fa-info-circle";
+  if (type === "success") icon = "fa-check-circle";
+  if (type === "error") icon = "fa-exclamation-triangle";
+  el.innerHTML = `<i class="fa ${icon}"></i> <span>${message}</span>`;
+  container.appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = "0";
+    el.style.transform = "translateY(-8px)";
+    setTimeout(() => el.remove(), 250);
+  }, 3200);
+}
+
+// ==================== 全局状态 ====================
+const state = {
+  icons: [],
+  widgets: [],
+  dockerContainers: [],
+  activeFilter: "all",
+  searchKeyword: "",
+  activeMainTab: "icons",
+
+  // 图标工坊状态 (WeTab 裁剪风格)
+  cropper: {
+    image: null,
+    scale: 1.0,
+    panX: 0,
+    panY: 0,
+    rotation: 0,
+    bgColor: "transparent",
+    isDragging: false,
+    dragStartX: 0,
+    dragStartY: 0
+  },
+
+  // 小组件表单状态
+  widgetForm: {
+    id: null,
+    type: "weather",
+    size: "medium",
+    title: "",
+    targetDate: "",
+    city: "北京",
+    theme: "glass",
+    style: "digital",
+    content: ""
+  }
+};
+
+// ==================== 桌面注入与还原防搞坏机制 ====================
+async function checkDesktopStatus() {
+  try {
+    const res = await fetchApi("/desktop-status");
+    const badge = document.getElementById("badgeDesktopStatus");
+    const text = document.getElementById("textDesktopStatus");
+    if (res.injected) {
+      badge.classList.add("is-mounted");
+      text.textContent = "已挂载桌面";
+    } else {
+      badge.classList.remove("is-mounted");
+      text.textContent = "未挂载桌面";
     }
-  }
+  } catch (_) {}
+}
 
-  // 轻量 Toast 提示
-  function showToast(message, type = "info") {
-    const toast = document.createElement("div");
-    toast.className = `toast toast-${type}`;
-    let icon = "fa-info-circle";
-    if (type === "success") icon = "fa-check-circle";
-    if (type === "error") icon = "fa-exclamation-triangle";
-    toast.innerHTML = `<i class="fa ${icon}"></i><span>${message}</span>`;
-    dom.toastContainer.appendChild(toast);
-    setTimeout(() => {
-      toast.style.opacity = "0";
-      toast.style.transform = "translateY(10px) scale(0.95)";
-      toast.style.transition = "all 0.25s ease";
-      setTimeout(() => toast.remove(), 250);
-    }, 3200);
+async function applyDesktop() {
+  const btn = document.getElementById("btnApplyDesktop");
+  btn.disabled = true;
+  btn.innerHTML = `<i class="fa fa-spinner fa-spin"></i> <span>生效中...</span>`;
+  try {
+    const res = await fetchApi("/apply-desktop", { method: "POST" });
+    showToast(res.message || "飞牛桌面已生效！刷新飞牛桌面即可显现。", "success");
+    checkDesktopStatus();
+  } catch (err) {
+    showToast("立即生效失败: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i class="fa fa-bolt"></i> <span>立即生效</span>`;
   }
+}
 
-  // 初始化应用
-  async function initApp() {
-    bindEvents();
-    initPalette();
-    await checkStatus();
-    await refreshData();
+async function restoreDesktop() {
+  const btn = document.getElementById("btnConfirmRestore");
+  btn.disabled = true;
+  btn.innerHTML = `<i class="fa fa-spinner fa-spin"></i> <span>正在还原...</span>`;
+  try {
+    const res = await fetchApi("/restore-desktop", { method: "POST" });
+    showToast(res.message || "桌面已彻底还原为出厂状态！", "success");
+    closeModal("restoreConfirmModal");
+    checkDesktopStatus();
+  } catch (err) {
+    showToast("还原失败: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i class="fa fa-history"></i> <span>确认一键还原</span>`;
   }
+}
 
-  // 检查状态
-  async function checkStatus() {
-    try {
-      const res = await api("/api/status");
-      if (res.success) {
-        if (res.lanIp) {
-          state.lanIp = res.lanIp;
-          dom.settingsLanIp.textContent = res.lanIp;
-        }
-        if (res.hasPassword && !state.token) {
-          openLoginModal();
-        }
-      }
-    } catch (e) {
-      console.error("[Fndesk Lite] 检查服务状态失败:", e.message);
-    }
-  }
+// ==================== WeTab 极简图标裁剪工坊 (图 3 同款) ====================
+const WETAB_PALETTE = [
+  // 第一排
+  { color: "transparent", title: "透明" },
+  { color: "#ffffff", title: "纯白" },
+  { color: "#475569", title: "岩灰" },
+  { color: "#0f172a", title: "深黑" },
+  { color: "#f59e0b", title: "琥珀黄" },
+  { color: "#10b981", title: "翠绿" },
+  { color: "#06b6d4", title: "青碧" },
+  { color: "#38bdf8", title: "天蓝" },
+  { color: "#3b82f6", title: "官方蓝" },
+  { color: "#8b5cf6", title: "魅紫" },
+  // 第二排
+  { color: "#ec4899", title: "品粉" },
+  { color: "#f43f5e", title: "珊瑚红" },
+  { color: "#ef4444", title: "正红" },
+  { color: "#e2d9cc", title: "米白" },
+  { color: "#d4a373", title: "浅驼" },
+  { color: "#8d5b4c", title: "醇棕" },
+  { color: "#65a30d", title: "草绿" },
+  { color: "#52b788", title: "薄荷" },
+  { color: "#a5b4fc", title: "淡紫" },
+  { color: "rainbow", title: "自定义取色" }
+];
 
-  // 刷新所有数据
-  async function refreshData() {
-    if (dom.refreshIcon) dom.refreshIcon.classList.add("spin");
-    try {
-      await Promise.all([loadIcons(), loadDockerContainers(), loadPresets()]);
-    } finally {
-      setTimeout(() => {
-        if (dom.refreshIcon) dom.refreshIcon.classList.remove("spin");
-      }, 350);
-    }
-  }
+function initPaletteDots() {
+  const container = document.getElementById("paletteDots");
+  container.innerHTML = "";
+  WETAB_PALETTE.forEach(item => {
+    const dot = document.createElement("div");
+    dot.className = "palette-dot";
+    dot.title = item.title;
 
-  // 获取图标列表
-  async function loadIcons() {
-    try {
-      const res = await api("/api/icons");
-      if (res.success && Array.isArray(res.icons)) {
-        state.icons = res.icons;
-        renderIconGrid();
-        updateStats();
-      }
-    } catch (e) {
-      showToast("加载图标列表失败: " + e.message, "error");
-    }
-  }
-
-  // 获取 Docker 容器列表
-  async function loadDockerContainers() {
-    try {
-      const res = await api("/api/docker/containers");
-      if (res.success && Array.isArray(res.containers)) {
-        state.dockerContainers = res.containers;
-        dom.statDockerContainers.textContent = state.dockerContainers.length;
-        populateDockerSelect();
-      }
-    } catch (e) {
-      dom.statDockerContainers.textContent = "-";
-    }
-  }
-
-  // 获取内置品牌预设库
-  async function loadPresets() {
-    try {
-      const res = await api("/api/presets");
-      if (res.success && Array.isArray(res.presets)) {
-        state.presets = res.presets;
-        renderPresetChips();
-      }
-    } catch (_) {}
-  }
-
-  function updateStats() {
-    dom.statTotalIcons.textContent = state.icons.length;
-    const nativeCount = state.icons.filter(i => i.nativeInstalled).length;
-    dom.statNativeApps.textContent = nativeCount;
-  }
-
-  // 填充 Docker 快捷选择下拉框
-  function populateDockerSelect() {
-    dom.dockerSelect.innerHTML = '<option value="">-- 选择运行中的 Docker 容器一键填入 --</option>';
-    for (const c of state.dockerContainers) {
-      const opt = document.createElement("option");
-      opt.value = c.name;
-      const portInfo = c.hostPort ? ` [端口 ${c.hostPort}]` : "";
-      opt.textContent = `🐳 ${c.name}${portInfo} (${c.image})`;
-      dom.dockerSelect.appendChild(opt);
-    }
-  }
-
-  // 渲染常用品牌预设 Chips
-  function renderPresetChips() {
-    dom.presetChipsContainer.innerHTML = "";
-    for (const p of state.presets) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "preset-chip";
-      chip.innerHTML = `<img src="${p.dataUrl}"><span>${p.name}</span>`;
-      chip.onclick = () => {
-        applyPresetToStudio(p);
+    if (item.color === "transparent") {
+      dot.style.background = "linear-gradient(45deg, #bbb 25%, transparent 25%), linear-gradient(-45deg, #bbb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #bbb 75%), linear-gradient(-45deg, transparent 75%, #bbb 75%)";
+      dot.style.backgroundSize = "6px 6px";
+      dot.style.backgroundColor = "#fff";
+    } else if (item.color === "rainbow") {
+      dot.className += " palette-dot-rainbow";
+      const picker = document.createElement("input");
+      picker.type = "color";
+      picker.style.opacity = "0";
+      picker.style.position = "absolute";
+      picker.style.inset = "0";
+      picker.style.cursor = "pointer";
+      picker.onchange = e => {
+        state.cropper.bgColor = e.target.value;
+        renderCropCanvas();
+        updateActiveDot(dot);
       };
-      dom.presetChipsContainer.appendChild(chip);
+      dot.appendChild(picker);
+    } else {
+      dot.style.backgroundColor = item.color;
     }
-  }
 
-  function applyPresetToStudio(preset) {
-    loadImgToStudio(preset.dataUrl, () => {
-      studioState.bgType = "solid";
-      studioState.bgColor = preset.color || "#1e293b";
-      dom.selectedBgLabel.textContent = preset.name;
-      renderStudioCanvas();
-      showToast(`已选用 ${preset.name} 高清矢量图标`, "success");
+    if (state.cropper.bgColor === item.color) {
+      dot.classList.add("active");
+    }
+
+    dot.addEventListener("click", () => {
+      if (item.color !== "rainbow") {
+        state.cropper.bgColor = item.color;
+        renderCropCanvas();
+        updateActiveDot(dot);
+      }
     });
+
+    container.appendChild(dot);
+  });
+}
+
+function updateActiveDot(activeEl) {
+  document.querySelectorAll(".palette-dot").forEach(d => d.classList.remove("active"));
+  if (activeEl) activeEl.classList.add("active");
+}
+
+// 绘制飞牛官方原生平滑圆角 Squircle
+function drawFnSquircle(ctx, x, y, width, height, radius) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+function renderCropCanvas() {
+  const canvas = document.getElementById("studioCanvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const size = canvas.width; // 256
+  ctx.clearRect(0, 0, size, size);
+
+  // 飞牛官方平滑圆角 (~22%)
+  const r = size * 0.22;
+
+  // 裁剪路径
+  ctx.save();
+  drawFnSquircle(ctx, 0, 0, size, size, r);
+  ctx.clip();
+
+  // 底色填充
+  if (state.cropper.bgColor !== "transparent") {
+    ctx.fillStyle = state.cropper.bgColor;
+    ctx.fillRect(0, 0, size, size);
   }
 
-  // 渲染主界面图标网格
-  function renderIconGrid() {
-    dom.iconGrid.innerHTML = "";
+  // 绘制主体图像
+  if (state.cropper.image) {
+    ctx.save();
+    ctx.translate(size / 2 + state.cropper.panX, size / 2 + state.cropper.panY);
+    ctx.rotate((state.cropper.rotation * Math.PI) / 180);
+    ctx.scale(state.cropper.scale, state.cropper.scale);
 
-    let list = state.icons;
-    if (state.filter === "native") {
-      list = list.filter(i => i.nativeInstalled);
-    } else if (state.filter === "shortcut") {
-      list = list.filter(i => !i.nativeInstalled);
-    }
+    const img = state.cropper.image;
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    const fitScale = (size * 0.75) / Math.max(iw, ih);
+    const dw = iw * fitScale;
+    const dh = ih * fitScale;
 
-    if (state.searchQuery) {
-      const q = state.searchQuery.toLowerCase();
-      list = list.filter(i => 
-        (i.fndata_Title && i.fndata_Title.toLowerCase().includes(q)) ||
-        (i.fndata_Lan && String(i.fndata_Lan).toLowerCase().includes(q)) ||
-        (i.fndata_Wan && i.fndata_Wan.toLowerCase().includes(q))
-      );
-    }
-
-    if (list.length === 0) {
-      dom.iconGrid.innerHTML = `
-        <div class="empty-state">
-          <i class="fa fa-folder-open-o"></i>
-          <h4>暂无图标</h4>
-          <p>可点击右上角「添加应用图标」，或直接从运行中的 Docker 容器一键生成。</p>
-          <button class="btn btn-primary" onclick="window.fndeskOpenAddModal()">
-            <i class="fa fa-plus"></i> 添加新图标
-          </button>
-        </div>
-      `;
-      return;
-    }
-
-    list.sort((a, b) => (b.fndata_Sort || 0) - (a.fndata_Sort || 0));
-
-    for (const item of list) {
-      dom.iconGrid.appendChild(createIconCard(item));
-    }
+    ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+    ctx.restore();
   }
 
-  // 创建单张图标卡片
-  function createIconCard(item) {
-    const card = document.createElement("div");
-    card.className = "icon-card";
+  ctx.restore();
+}
 
-    let iconSrc = resolveUrl(item.fndata_LanPic || item.fndata_WanPic || "static/icon.png");
-    const isNative = Boolean(item.nativeInstalled);
-    const badgeHtml = isNative 
-      ? '<span class="badge-tag badge-native"><i class="fa fa-check"></i> 飞牛原生</span>'
-      : '<span class="badge-tag badge-shortcut"><i class="fa fa-link"></i> 快捷方式</span>';
+function loadCropperImage(src) {
+  if (!src) return;
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => {
+    state.cropper.image = img;
+    state.cropper.scale = 1.0;
+    state.cropper.panX = 0;
+    state.cropper.panY = 0;
+    state.cropper.rotation = 0;
+    renderCropCanvas();
+  };
+  img.onerror = () => {
+    showToast("图片加载失败，请重试或手动上传", "error");
+  };
+  img.src = src;
+}
 
-    let targetUrlText = item.fndata_Lan || item.fndata_Wan || "";
-    if (/^\d+$/.test(targetUrlText.trim())) {
-      targetUrlText = `:${targetUrlText.trim()}`;
-    }
+function initCanvasEvents() {
+  const wrapper = document.getElementById("canvasContainer");
 
-    card.innerHTML = `
-      <img src="${iconSrc}" class="card-icon-img" alt="${item.fndata_Title}" onerror="this.src='static/icon.png'">
-      <div class="card-info">
-        <div class="card-title">
-          <span>${escapeHtml(item.fndata_Title)}</span>
-          ${badgeHtml}
-        </div>
-        <div class="card-url" title="${escapeHtml(item.fndata_Lan || item.fndata_Wan || "")}">
-          ${escapeHtml(targetUrlText || "未设置访问地址")}
-        </div>
-      </div>
-      <div class="card-actions">
-        <button class="btn btn-secondary btn-sm" title="打开应用" data-action="launch">
-          <i class="fa fa-external-link"></i>
-        </button>
-        <button class="btn btn-secondary btn-sm" title="编辑图标" data-action="edit">
-          <i class="fa fa-pencil"></i>
-        </button>
-        <button class="btn btn-secondary btn-sm btn-danger" title="删除" data-action="delete">
-          <i class="fa fa-trash"></i>
-        </button>
+  // 拖动平移
+  wrapper.addEventListener("mousedown", e => {
+    state.cropper.isDragging = true;
+    state.cropper.dragStartX = e.clientX - state.cropper.panX;
+    state.cropper.dragStartY = e.clientY - state.cropper.panY;
+  });
+
+  window.addEventListener("mousemove", e => {
+    if (!state.cropper.isDragging) return;
+    state.cropper.panX = e.clientX - state.cropper.dragStartX;
+    state.cropper.panY = e.clientY - state.cropper.dragStartY;
+    renderCropCanvas();
+  });
+
+  window.addEventListener("mouseup", () => {
+    state.cropper.isDragging = false;
+  });
+
+  // 滚轮缩放
+  wrapper.addEventListener("wheel", e => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.08 : 0.08;
+    state.cropper.scale = Math.max(0.3, Math.min(3.0, state.cropper.scale + delta));
+    renderCropCanvas();
+  }, { passive: false });
+
+  // 工具栏按钮控制
+  document.getElementById("btnRotateCCW").onclick = () => {
+    state.cropper.rotation = (state.cropper.rotation - 90) % 360;
+    renderCropCanvas();
+  };
+  document.getElementById("btnRotateCW").onclick = () => {
+    state.cropper.rotation = (state.cropper.rotation + 90) % 360;
+    renderCropCanvas();
+  };
+  document.getElementById("btnResetCrop").onclick = () => {
+    state.cropper.scale = 1.0;
+    state.cropper.panX = 0;
+    state.cropper.panY = 0;
+    state.cropper.rotation = 0;
+    renderCropCanvas();
+  };
+  document.getElementById("btnZoomOut").onclick = () => {
+    state.cropper.scale = Math.max(0.3, state.cropper.scale - 0.1);
+    renderCropCanvas();
+  };
+  document.getElementById("btnZoomIn").onclick = () => {
+    state.cropper.scale = Math.min(3.0, state.cropper.scale + 0.1);
+    renderCropCanvas();
+  };
+}
+
+// ==================== 图标数据管理 ====================
+async function loadIcons() {
+  try {
+    const data = await fetchApi("/icons");
+    state.icons = data.icons || [];
+    renderIcons();
+    updateStats();
+  } catch (err) {
+    showToast("获取图标列表失败: " + err.message, "error");
+  }
+}
+
+function renderIcons() {
+  const grid = document.getElementById("iconGrid");
+  const keyword = state.searchKeyword.toLowerCase().trim();
+  const filter = state.activeFilter;
+
+  const filtered = state.icons.filter(item => {
+    if (filter === "native" && !item.nativeInstalled) return false;
+    if (filter === "shortcut" && item.nativeInstalled) return false;
+    if (!keyword) return true;
+    const text = `${item.fndata_Title} ${item.fndata_Lan} ${item.fndata_Wan} ${item.appname}`.toLowerCase();
+    return text.includes(keyword);
+  });
+
+  if (filtered.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column: 1/-1; text-align: center; padding: 3rem; color: var(--text-dim);">
+        <i class="fa fa-folder-open-o" style="font-size: 2.5rem; margin-bottom: 0.8rem; opacity: 0.4;"></i>
+        <div>没有找到匹配的图标，点击右上角「添加图标」开始创建</div>
       </div>
     `;
-
-    card.querySelector('[data-action="launch"]').onclick = () => launchApp(item);
-    card.querySelector('[data-action="edit"]').onclick = () => openEditModal(item);
-    card.querySelector('[data-action="delete"]').onclick = () => deleteApp(item);
-
-    return card;
+    return;
   }
 
-  // 启动应用
-  function launchApp(item) {
-    let url = item.fndata_Lan || item.fndata_Wan || "";
-    if (!url) return showToast("未配置访问地址", "error");
-
-    if (/^\d+$/.test(url.trim())) {
-      const protocol = item.fndata_Protocol === 2 ? "https:" : "http:";
-      const host = state.lanIp || window.location.hostname || "127.0.0.1";
-      url = `${protocol}//${host}:${url.trim()}`;
-    } else if (!/^https?:\/\//i.test(url)) {
-      const protocol = item.fndata_Protocol === 2 ? "https://" : "http://";
-      url = protocol + url;
+  grid.innerHTML = filtered.map(item => {
+    let imgSrc = item.fndata_LanPic || "";
+    if (imgSrc.startsWith("/deskdata")) {
+      imgSrc = `${API_BASE.replace(/\/api$/, "")}${imgSrc}`;
     }
+    const isNative = Boolean(item.nativeInstalled);
+    const tag = isNative
+      ? `<span class="icon-tag-native"><i class="fa fa-cube"></i> 飞牛原生</span>`
+      : `<span class="icon-tag-shortcut"><i class="fa fa-link"></i> 桌面快捷</span>`;
 
-    if (item.OpenInPage === 1) {
-      window.open(url, "_blank");
+    return `
+      <div class="icon-card">
+        <img class="icon-thumb" src="${imgSrc}" alt="${item.fndata_Title}" onerror="this.src='favicon.ico'">
+        <div class="icon-info">
+          <div class="icon-title">
+            <span>${item.fndata_Title}</span>
+            ${tag}
+          </div>
+          <div class="icon-meta" title="${item.fndata_Lan || item.fndata_Wan}">
+            ${item.fndata_Lan ? `端口/内网: ${item.fndata_Lan}` : (item.fndata_Wan || "未配置地址")}
+          </div>
+        </div>
+        <div class="icon-actions">
+          <button class="btn btn-secondary btn-icon btn-sm" onclick="openIconPreview('${item.id}')" title="打开/测试访问">
+            <i class="fa fa-external-link"></i>
+          </button>
+          <button class="btn btn-secondary btn-icon btn-sm" onclick="editIcon(${item.id})" title="编辑图标">
+            <i class="fa fa-pencil"></i>
+          </button>
+          <button class="btn btn-secondary btn-icon btn-sm" style="color: var(--danger);" onclick="deleteIcon(${item.id})" title="删除">
+            <i class="fa fa-trash"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function openIconPreview(id) {
+  const item = state.icons.find(i => String(i.id) === String(id));
+  if (!item) return;
+  let finalUrl = item.fndata_Lan || item.fndata_Wan || "";
+  if (/^\d+$/.test(finalUrl.trim())) {
+    finalUrl = `http://${window.location.hostname}:${finalUrl.trim()}`;
+  }
+  if (finalUrl) window.open(finalUrl, "_blank");
+}
+
+function openAddIconModal() {
+  document.getElementById("iconForm").reset();
+  document.getElementById("fieldId").value = "";
+  document.getElementById("fieldLanPic").value = "";
+  document.getElementById("fieldIconDataUrl").value = "";
+  document.getElementById("fieldAppname").value = "";
+  document.getElementById("editModalTitle").innerHTML = `<i class="fa fa-crop" style="color: var(--accent);"></i> 图标裁剪与应用配置`;
+  document.getElementById("fieldGenerateNative").checked = true;
+
+  state.cropper.image = null;
+  state.cropper.scale = 1.0;
+  state.cropper.panX = 0;
+  state.cropper.panY = 0;
+  state.cropper.rotation = 0;
+  state.cropper.bgColor = "transparent";
+
+  // 默认画一个干净的占位
+  renderCropCanvas();
+  initPaletteDots();
+  openModal("editModal");
+}
+
+function editIcon(id) {
+  const item = state.icons.find(i => i.id === id);
+  if (!item) return;
+
+  document.getElementById("fieldId").value = item.id;
+  document.getElementById("fieldTitle").value = item.fndata_Title || "";
+  document.getElementById("fieldLan").value = item.fndata_Lan || "";
+  document.getElementById("fieldWan").value = item.fndata_Wan || "";
+  document.getElementById("fieldOpenInPage").value = item.OpenInPage || 0;
+  document.getElementById("fieldProtocol").value = item.fndata_Protocol || 0;
+  document.getElementById("fieldLanPic").value = item.fndata_LanPic || "";
+  document.getElementById("fieldAppname").value = item.appname || "";
+  document.getElementById("fieldGenerateNative").checked = Boolean(item.nativeInstalled);
+  document.getElementById("editModalTitle").innerHTML = `<i class="fa fa-crop" style="color: var(--accent);"></i> 编辑应用图标: ${item.fndata_Title}`;
+
+  let imgSrc = item.fndata_LanPic || "";
+  if (imgSrc.startsWith("/deskdata")) {
+    imgSrc = `${API_BASE.replace(/\/api$/, "")}${imgSrc}`;
+  }
+  loadCropperImage(imgSrc);
+  initPaletteDots();
+  openModal("editModal");
+}
+
+async function deleteIcon(id) {
+  if (!confirm("确定要删除该图标吗？若已生成飞牛原生套件将同步从系统卸载。")) return;
+  try {
+    await fetchApi(`/icons/${id}`, { method: "DELETE" });
+    showToast("图标已删除", "success");
+    loadIcons();
+  } catch (err) {
+    showToast("删除失败: " + err.message, "error");
+  }
+}
+
+// 嗅探抓取 Favicon
+async function handleSniffFavicon() {
+  const portOrUrl = document.getElementById("fieldLan").value.trim() || document.getElementById("fieldWan").value.trim();
+  const title = document.getElementById("fieldTitle").value.trim();
+  if (!portOrUrl) {
+    return showToast("请先填写局域网端口或访问地址", "error");
+  }
+
+  const btn = document.getElementById("btnSniffFavicon");
+  btn.disabled = true;
+  btn.innerHTML = `<i class="fa fa-spinner fa-spin"></i> <span>抓取中...</span>`;
+
+  try {
+    const res = await fetchApi("/fetch-favicon", {
+      method: "POST",
+      body: JSON.stringify({ url: portOrUrl, title })
+    });
+    if (res.dataUrl) {
+      loadCropperImage(res.dataUrl);
+      showToast("图标探测成功！", "success");
+    }
+  } catch (err) {
+    showToast(err.message || "未能抓取到图标，可直接上传图片", "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i class="fa fa-globe"></i> <span>抓取 Favicon</span>`;
+  }
+}
+
+// 保存图标
+async function saveIcon() {
+  const title = document.getElementById("fieldTitle").value.trim();
+  if (!title) return showToast("请输入应用名称", "error");
+
+  const canvas = document.getElementById("studioCanvas");
+  const iconDataUrl = canvas.toDataURL("image/png");
+
+  const payload = {
+    id: document.getElementById("fieldId").value ? parseInt(document.getElementById("fieldId").value, 10) : undefined,
+    fndata_Title: title,
+    fndata_Lan: document.getElementById("fieldLan").value.trim(),
+    fndata_Wan: document.getElementById("fieldWan").value.trim(),
+    OpenInPage: parseInt(document.getElementById("fieldOpenInPage").value, 10),
+    fndata_Protocol: parseInt(document.getElementById("fieldProtocol").value, 10),
+    generateNative: document.getElementById("fieldGenerateNative").checked,
+    iconDataUrl: iconDataUrl,
+    appname: document.getElementById("fieldAppname").value || undefined
+  };
+
+  const btn = document.getElementById("btnSaveIcon");
+  btn.disabled = true;
+  btn.innerHTML = `<i class="fa fa-spinner fa-spin"></i> <span>正在保存应用...</span>`;
+
+  try {
+    await fetchApi("/icons", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    showToast("应用图标保存成功！", "success");
+    closeModal("editModal");
+    loadIcons();
+  } catch (err) {
+    showToast("保存失败: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `完成`;
+  }
+}
+
+// ==================== WeTab 桌面卡片组件管理 ====================
+async function loadWidgets() {
+  try {
+    const data = await fetchApi("/widgets");
+    state.widgets = data.widgets || [];
+    renderWidgets();
+    updateStats();
+  } catch (err) {
+    console.warn("获取卡片小组件失败:", err.message);
+  }
+}
+
+function renderWidgets() {
+  const grid = document.getElementById("widgetAdminGrid");
+  if (!grid) return;
+  if (state.widgets.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column: 1/-1; text-align: center; padding: 3rem; color: var(--text-dim);">
+        <i class="fa fa-cubes" style="font-size: 2.5rem; margin-bottom: 0.8rem; opacity: 0.4;"></i>
+        <div>暂未添加桌面卡片，点击上方「添加小组件卡片」丰富你的飞牛桌面</div>
+      </div>
+    `;
+    return;
+  }
+
+  const typeLabels = {
+    weather: "⛅ 实时天气",
+    countdown: "⏳ 倒计时/纪念日",
+    clock: "🕒 数字时钟",
+    notes: "📝 便签备忘"
+  };
+  const sizeLabels = {
+    small: "小 (1x1)",
+    medium: "中 (2x1)",
+    large: "大 (2x2)"
+  };
+
+  grid.innerHTML = state.widgets.map(w => {
+    return `
+      <div class="widget-admin-card">
+        <div class="widget-admin-top">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="widget-type-badge">${typeLabels[w.type] || w.type}</span>
+            <span class="widget-size-tag">${sizeLabels[w.size] || w.size}</span>
+          </div>
+          <div style="display: flex; gap: 4px;">
+            <button class="btn btn-secondary btn-icon btn-xs" onclick="editWidget(${w.id})" title="编辑">
+              <i class="fa fa-pencil"></i>
+            </button>
+            <button class="btn btn-secondary btn-icon btn-xs" style="color: var(--danger);" onclick="deleteWidget(${w.id})" title="删除">
+              <i class="fa fa-trash"></i>
+            </button>
+          </div>
+        </div>
+        <div class="widget-preview-wrapper">
+          ${renderStaticWidgetHtml(w)}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function calcCountdown(targetDateStr) {
+  const target = new Date(targetDateStr).getTime();
+  const now = Date.now();
+  const diff = target - now;
+  if (isNaN(diff)) return { days: 0, hours: 0, mins: 0, secs: 0, isPast: false };
+  if (diff <= 0) {
+    const pastDays = Math.floor(Math.abs(diff) / (1000 * 60 * 60 * 24));
+    return { days: pastDays, hours: 0, mins: 0, secs: 0, isPast: true };
+  }
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+  const mins = Math.floor((diff / (1000 * 60)) % 60);
+  const secs = Math.floor((diff / 1000) % 60);
+  return { days, hours, mins, secs, isPast: false };
+}
+
+const pad = n => String(n).padStart(2, "0");
+
+function renderStaticWidgetHtml(w) {
+  const size = w.size || "medium";
+  const theme = w.theme || "glass";
+
+  if (w.type === "weather") {
+    const city = w.city || "北京";
+    if (size === "small") {
+      return `
+        <div class="wetab-card wetab-card-small theme-${theme}">
+          <div class="weather-inner">
+            <div class="weather-header"><span>${city}</span><span>⛅</span></div>
+            <div class="weather-main"><span class="weather-temp">22°</span><span class="weather-desc">晴间多云</span></div>
+            <div class="weather-footer"><span>18°~27°</span><span>湿度 45%</span></div>
+          </div>
+        </div>
+      `;
+    } else if (size === "large") {
+      return `
+        <div class="wetab-card wetab-card-large theme-${theme}">
+          <div class="weather-inner" style="gap: 12px;">
+            <div class="weather-header" style="font-size: 15px;"><span>${city} 天气概况</span><span style="font-size: 22px;">⛅</span></div>
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div class="weather-temp" style="font-size: 48px;">22°</div>
+              <div style="text-align: right;">
+                <div style="font-size: 15px; font-weight: 600;">晴间多云</div>
+                <div style="font-size: 12px; opacity: 0.75; margin-top: 4px;">今日 18° ~ 27°</div>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px;">
+              <div class="weather-pill">💧 湿度: 45%</div>
+              <div class="weather-pill">💨 风况: 微风</div>
+              <div class="weather-pill">🌡️ 体感: 23°</div>
+              <div class="weather-pill">🍃 空气: 优良</div>
+            </div>
+          </div>
+        </div>
+      `;
     } else {
-      window.open(url, "_blank");
+      return `
+        <div class="wetab-card wetab-card-medium theme-${theme}">
+          <div class="weather-inner" style="flex-direction: row; align-items: center; justify-content: space-between;">
+            <div>
+              <div class="weather-header" style="margin-bottom: 6px;"><span>${city}</span><span style="margin-left: 6px;">⛅</span></div>
+              <div class="weather-main"><span class="weather-temp">22°</span><span class="weather-desc">晴间多云</span></div>
+            </div>
+            <div class="weather-med-right">
+              <span class="weather-pill">🌡️ 18° ~ 27°</span>
+              <span class="weather-pill">💧 湿度 45%</span>
+              <span class="weather-pill">💨 微风</span>
+            </div>
+          </div>
+        </div>
+      `;
     }
   }
 
-  // 删除应用
-  async function deleteApp(item) {
-    if (!confirm(`确定删除应用「${item.fndata_Title}」吗？`)) return;
-    try {
-      const res = await api(`/api/icons/${item.id}`, { method: "DELETE" });
-      if (res.success) {
-        showToast("已成功删除", "success");
-        await loadIcons();
-      }
-    } catch (e) {
-      showToast("删除失败: " + e.message, "error");
-    }
-  }
-
-  // 打开添加/编辑模态框
-  function openEditModal(item = null) {
-    dom.editModal.classList.add("active");
-    dom.dockerSelect.value = "";
-
-    if (item) {
-      dom.editModalTitle.innerHTML = `<i class="fa fa-pencil" style="color: var(--accent);"></i> 编辑应用图标`;
-      dom.fieldId.value = item.id || "";
-      dom.fieldTitle.value = item.fndata_Title || "";
-      dom.fieldOpenInPage.value = String(item.OpenInPage || 0);
-      dom.fieldProtocol.value = String(item.fndata_Protocol || 0);
-      dom.fieldLan.value = item.fndata_Lan || "";
-      dom.fieldWan.value = item.fndata_Wan || "";
-      dom.fieldLanPic.value = item.fndata_LanPic || "";
-      dom.fieldAppname.value = item.appname || "";
-      dom.fieldGenerateNative.checked = Boolean(item.nativeInstalled);
-      updateLanHint(item.fndata_Lan || "");
-
-      const existingPic = resolveUrl(item.fndata_LanPic || item.fndata_WanPic || "static/icon.png");
-      loadImgToStudio(existingPic);
+  if (w.type === "countdown") {
+    const cd = calcCountdown(w.targetDate || "2026-10-01T00:00");
+    const targetStr = (w.targetDate || "2026-10-01").split("T")[0];
+    if (size === "small") {
+      return `
+        <div class="wetab-card wetab-card-small theme-${theme}">
+          <div class="cd-inner">
+            <div class="cd-title">${w.title || "目标倒计时"}</div>
+            <div class="cd-center"><span class="cd-days">${cd.days}</span><span class="cd-unit">天</span></div>
+            <div class="cd-footer">${cd.isPast ? "已过去" : "倒计时"}</div>
+          </div>
+        </div>
+      `;
+    } else if (size === "large") {
+      return `
+        <div class="wetab-card wetab-card-large theme-${theme}">
+          <div class="cd-inner" style="gap: 12px;">
+            <div class="weather-header" style="font-size: 15px;">
+              <span class="cd-title">${w.title || "目标倒计时"}</span>
+              <span style="font-size: 18px;">⏳</span>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin: auto 0;">
+              <div style="display: flex; align-items: baseline; gap: 6px;">
+                <span class="cd-days" style="font-size: 56px;">${cd.days}</span>
+                <span class="cd-unit" style="font-size: 18px;">天</span>
+              </div>
+              <div class="cd-time-bar" style="margin-top: 8px; font-size: 13px; padding: 4px 12px;">
+                ${pad(cd.hours)} 时 ${pad(cd.mins)} 分 ${pad(cd.secs)} 秒
+              </div>
+            </div>
+            <div class="cd-footer" style="text-align: center;">目标: ${targetStr}</div>
+          </div>
+        </div>
+      `;
     } else {
-      dom.editModalTitle.innerHTML = `<i class="fa fa-plus-circle" style="color: var(--accent);"></i> 添加应用图标`;
-      dom.fieldId.value = "";
-      dom.fieldTitle.value = "";
-      dom.fieldOpenInPage.value = "0";
-      dom.fieldProtocol.value = "0";
-      dom.fieldLan.value = "";
-      dom.fieldWan.value = "";
-      dom.fieldLanPic.value = "";
-      dom.fieldAppname.value = "";
-      dom.fieldGenerateNative.checked = true;
-      updateLanHint("");
-
-      loadImgToStudio("static/icon.png");
+      return `
+        <div class="wetab-card wetab-card-medium theme-${theme}">
+          <div class="cd-inner">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div class="cd-title">${w.title || "目标倒计时"}</div>
+              <div style="font-size: 11px; opacity: 0.7;">${cd.isPast ? "已过" : "剩余"}</div>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin: auto 0;">
+              <div style="display: flex; align-items: baseline; gap: 4px;">
+                <span class="cd-days">${cd.days}</span>
+                <span class="cd-unit">天</span>
+              </div>
+              <div class="cd-time-bar">${pad(cd.hours)}:${pad(cd.mins)}:${pad(cd.secs)}</div>
+            </div>
+            <div class="cd-footer">${targetStr}</div>
+          </div>
+        </div>
+      `;
     }
-    updateMockupTitle();
   }
 
-  window.fndeskOpenAddModal = () => openEditModal(null);
+  if (w.type === "clock") {
+    const now = new Date();
+    const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    const secStr = pad(now.getSeconds());
+    const dateStr = `${now.getMonth() + 1}月${now.getDate()}日 星期${["日","一","二","三","四","五","六"][now.getDay()]}`;
 
-  function closeEditModal() {
-    dom.editModal.classList.remove("active");
-  }
-
-  function updateLanHint(val) {
-    const trimmed = String(val || "").trim();
-    if (/^\d+$/.test(trimmed)) {
-      dom.lanHint.textContent = `局域网完整地址: http://${state.lanIp}:${trimmed}`;
+    if (size === "small") {
+      return `
+        <div class="wetab-card wetab-card-small theme-${theme}">
+          <div class="clock-inner">
+            <div class="clock-time">${timeStr}<span class="clock-sec">${secStr}</span></div>
+            <div class="clock-date">${dateStr}</div>
+          </div>
+        </div>
+      `;
+    } else if (size === "large") {
+      return `
+        <div class="wetab-card wetab-card-large theme-${theme}">
+          <div class="clock-inner" style="justify-content: space-around;">
+            <div style="font-size: 14px; opacity: 0.85;">${now.getFullYear()} 年</div>
+            <div class="clock-time" style="font-size: 46px;">${timeStr}<span class="clock-sec" style="font-size: 20px;">${secStr}</span></div>
+            <div class="clock-date" style="font-size: 14px; font-weight: 600;">${dateStr}</div>
+          </div>
+        </div>
+      `;
     } else {
-      dom.lanHint.textContent = "填入端口号可自动适配飞牛 FN Connect 远程访问穿透。";
+      return `
+        <div class="wetab-card wetab-card-medium theme-${theme}">
+          <div class="clock-inner">
+            <div class="clock-time" style="font-size: 38px;">${timeStr}<span class="clock-sec">${secStr}</span></div>
+            <div class="clock-date" style="font-size: 13px;">${dateStr}</div>
+          </div>
+        </div>
+      `;
     }
   }
 
-  function updateMockupTitle() {
-    dom.mockupTitle.textContent = dom.fieldTitle.value.trim() || "应用标题";
+  // notes
+  return `
+    <div class="wetab-card wetab-card-${size} theme-${theme}">
+      <div class="notes-inner" style="padding: 10px;">
+        <div class="notes-title">📌 ${w.title || "便签备忘"}</div>
+        <div class="notes-content">${w.content || "写下待办事项或灵感备忘..."}</div>
+      </div>
+    </div>
+  `;
+}
+
+function openAddWidgetModal() {
+  state.widgetForm = {
+    id: null,
+    type: "weather",
+    size: "medium",
+    title: "",
+    targetDate: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 16),
+    city: "北京",
+    theme: "glass",
+    style: "digital",
+    content: ""
+  };
+  updateWidgetFormInputs();
+  renderWidgetLivePreview();
+  openModal("widgetModal");
+}
+
+function editWidget(id) {
+  const w = state.widgets.find(item => item.id === id);
+  if (!w) return;
+  state.widgetForm = { ...w };
+  updateWidgetFormInputs();
+  renderWidgetLivePreview();
+  openModal("widgetModal");
+}
+
+function updateWidgetFormInputs() {
+  const f = state.widgetForm;
+  document.getElementById("widgetFieldId").value = f.id || "";
+  document.getElementById("fieldWeatherCity").value = f.city || "北京";
+  document.getElementById("fieldCdTitle").value = f.title || "";
+  document.getElementById("fieldCdDate").value = f.targetDate || "";
+  document.getElementById("fieldClockStyle").value = f.style || "digital";
+  document.getElementById("fieldNotesTitle").value = f.title || "";
+  document.getElementById("fieldNotesContent").value = f.content || "";
+  document.getElementById("fieldWidgetTheme").value = f.theme || "glass";
+
+  // 激活类型选择器
+  document.querySelectorAll("#widgetTypeSelector .segmented-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.type === f.type);
+  });
+  // 激活尺寸选择器
+  document.querySelectorAll("#widgetSizeSelector .segmented-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.size === f.size);
+  });
+
+  // 切换表单组显隐
+  document.getElementById("groupWeather").style.display = f.type === "weather" ? "block" : "none";
+  document.getElementById("groupCountdown").style.display = f.type === "countdown" ? "block" : "none";
+  document.getElementById("groupClock").style.display = f.type === "clock" ? "block" : "none";
+  document.getElementById("groupNotes").style.display = f.type === "notes" ? "block" : "none";
+}
+
+function renderWidgetLivePreview() {
+  const container = document.getElementById("widgetLivePreviewWrapper");
+  container.innerHTML = renderStaticWidgetHtml(state.widgetForm);
+}
+
+async function saveWidget() {
+  const f = state.widgetForm;
+  f.city = document.getElementById("fieldWeatherCity").value.trim();
+  f.title = f.type === "countdown" ? document.getElementById("fieldCdTitle").value.trim() : document.getElementById("fieldNotesTitle").value.trim();
+  f.targetDate = document.getElementById("fieldCdDate").value;
+  f.style = document.getElementById("fieldClockStyle").value;
+  f.content = document.getElementById("fieldNotesContent").value.trim();
+  f.theme = document.getElementById("fieldWidgetTheme").value;
+
+  try {
+    await fetchApi("/widgets", {
+      method: "POST",
+      body: JSON.stringify(f)
+    });
+    showToast("小组件卡片已保存！", "success");
+    closeModal("widgetModal");
+    loadWidgets();
+  } catch (err) {
+    showToast("保存失败: " + err.message, "error");
   }
+}
 
-  // -------------------------------------------------------------
-  // 图标工坊核心 Canvas 渲染引擎
-  // -------------------------------------------------------------
-  function initPalette() {
-    dom.paletteGrid.innerHTML = "";
-
-    // 预设背景列表
-    const palettes = [
-      { type: "transparent", label: "透明", val: "transparent" },
-      { type: "solid", label: "Docker蓝", val: "#0db7ed" },
-      { type: "solid", label: "Jellyfin青", val: "#00a4dc" },
-      { type: "solid", label: "Plex金", val: "#e5a00d" },
-      { type: "solid", label: "Portainer青", val: "#13bef9" },
-      { type: "solid", label: "fnOS深蓝", val: "#2563eb" },
-      { type: "solid", label: "青龙绿", val: "#10b981" },
-      { type: "solid", label: "极简暗黑", val: "#0d1322" },
-      { type: "solid", label: "玄武石墨", val: "#1e293b" },
-      { type: "solid", label: "纯白", val: "#ffffff" },
-      { type: "gradient", label: "蓝紫幻境", val: ["#3b82f6", "#8b5cf6", 135] },
-      { type: "gradient", label: "深海极光", val: ["#06b6d4", "#3b82f6", 135] },
-      { type: "gradient", label: "落日晚霞", val: ["#f43f5e", "#fb923c", 135] },
-      { type: "gradient", label: "极光青翠", val: ["#10b981", "#06b6d4", 135] },
-      { type: "gradient", label: "暗夜星云", val: ["#1e293b", "#090d16", 135] },
-      { type: "gradient", label: "赛博霓虹", val: ["#d946ef", "#6366f1", 135] }
-    ];
-
-    for (const p of palettes) {
-      const swatch = document.createElement("div");
-      swatch.className = "color-swatch";
-      swatch.title = p.label;
-      if (p.type === "transparent") {
-        swatch.style.background = "repeating-conic-gradient(#334155 0% 25%, #1e293b 0% 50%) 50% / 10px 10px";
-      } else if (p.type === "solid") {
-        swatch.style.backgroundColor = p.val;
-      } else {
-        swatch.style.background = `linear-gradient(${p.val[2]}deg, ${p.val[0]}, ${p.val[1]})`;
-      }
-
-      swatch.onclick = () => {
-        document.querySelectorAll(".color-swatch").forEach(s => s.classList.remove("active"));
-        swatch.classList.add("active");
-        studioState.bgType = p.type;
-        if (p.type === "solid") studioState.bgColor = p.val;
-        if (p.type === "gradient") studioState.bgGradient = p.val;
-        dom.selectedBgLabel.textContent = p.label;
-        renderStudioCanvas();
-      };
-      dom.paletteGrid.appendChild(swatch);
-    }
+async function deleteWidget(id) {
+  if (!confirm("确定要删除此桌面小组件卡片吗？")) return;
+  try {
+    await fetchApi(`/widgets/${id}`, { method: "DELETE" });
+    showToast("小组件已删除", "success");
+    loadWidgets();
+  } catch (err) {
+    showToast("删除失败: " + err.message, "error");
   }
+}
 
-  function loadImgToStudio(src, callback) {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      studioState.img = img;
-      renderStudioCanvas();
-      if (callback) callback();
+// ==================== Docker 容器嗅探 ====================
+async function loadDockerContainers() {
+  try {
+    const data = await fetchApi("/docker/containers");
+    state.dockerContainers = data.containers || [];
+    document.getElementById("statDockerContainers").textContent = state.dockerContainers.length;
+
+    const select = document.getElementById("dockerSelect");
+    select.innerHTML = '<option value="">-- 选择运行中的 Docker 容器一键填入 --</option>';
+    state.dockerContainers.forEach(c => {
+      const opt = document.createElement("option");
+      opt.value = c.name;
+      opt.textContent = `${c.name} (${c.hostPort ? `:${c.hostPort}` : "无端口映射"})`;
+      select.appendChild(opt);
+    });
+  } catch (_) {}
+}
+
+function handleDockerSelect(e) {
+  const name = e.target.value;
+  if (!name) return;
+  const item = state.dockerContainers.find(c => c.name === name);
+  if (!item) return;
+
+  document.getElementById("fieldTitle").value = item.matchedBrand || item.name;
+  if (item.hostPort) {
+    document.getElementById("fieldLan").value = item.hostPort;
+    handleSniffFavicon();
+  } else if (item.lanUrl) {
+    document.getElementById("fieldLan").value = item.lanUrl;
+  }
+  if (item.presetDataUrl) {
+    loadCropperImage(item.presetDataUrl);
+  }
+}
+
+// ==================== 统计与辅助 ====================
+function updateStats() {
+  document.getElementById("statTotalIcons").textContent = state.icons.length;
+  document.getElementById("statNativeApps").textContent = state.icons.filter(i => i.nativeInstalled).length;
+  document.getElementById("statTotalWidgets").textContent = state.widgets.length;
+}
+
+function openModal(id) {
+  document.getElementById(id).classList.add("active");
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove("active");
+}
+
+function showLoginModal() {
+  openModal("loginModal");
+}
+
+// ==================== 初始化事件监听 ====================
+document.addEventListener("DOMContentLoaded", () => {
+  // 基础数据加载
+  loadIcons();
+  loadWidgets();
+  loadDockerContainers();
+  checkDesktopStatus();
+
+  // 顶部操作栏
+  document.getElementById("btnApplyDesktop").onclick = applyDesktop;
+  document.getElementById("btnRestoreDesktop").onclick = () => openModal("restoreConfirmModal");
+  document.getElementById("btnConfirmRestore").onclick = restoreDesktop;
+  document.getElementById("btnCancelRestore").onclick = () => closeModal("restoreConfirmModal");
+  document.getElementById("btnCloseRestoreModal").onclick = () => closeModal("restoreConfirmModal");
+
+
+  document.getElementById("btnSettings").onclick = () => openModal("settingsModal");
+  document.getElementById("btnCloseSettings").onclick = () => closeModal("settingsModal");
+  document.getElementById("btnCancelSettings").onclick = () => closeModal("settingsModal");
+
+  // 主视图 Tab 切换
+  document.querySelectorAll("#mainTabs .segmented-btn").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll("#mainTabs .segmented-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const tab = btn.dataset.tab;
+      document.getElementById("tabViewIcons").style.display = tab === "icons" ? "block" : "none";
+      document.getElementById("tabViewWidgets").style.display = tab === "widgets" ? "block" : "none";
     };
-    img.onerror = () => {
-      // 降级使用内置默认
-      if (!src.includes("static/icon.png")) {
-        loadImgToStudio("static/icon.png", callback);
-      }
+  });
+
+  // 添加图标
+  document.getElementById("btnAddIcon").onclick = openAddIconModal;
+  document.getElementById("btnCloseEditModal").onclick = () => closeModal("editModal");
+  document.getElementById("btnCancelEdit").onclick = () => closeModal("editModal");
+  document.getElementById("btnSaveIcon").onclick = saveIcon;
+
+  // 添加卡片小组件
+  document.getElementById("btnAddWidget").onclick = openAddWidgetModal;
+  document.getElementById("btnAddNewWidget").onclick = openAddWidgetModal;
+  document.getElementById("btnCloseWidgetModal").onclick = () => closeModal("widgetModal");
+  document.getElementById("btnCancelWidget").onclick = () => closeModal("widgetModal");
+  document.getElementById("btnSaveWidget").onclick = saveWidget;
+
+  // 小组件类型与尺寸切换
+  document.querySelectorAll("#widgetTypeSelector .segmented-btn").forEach(btn => {
+    btn.onclick = () => {
+      state.widgetForm.type = btn.dataset.type;
+      updateWidgetFormInputs();
+      renderWidgetLivePreview();
     };
-    img.src = src;
-  }
+  });
+  document.querySelectorAll("#widgetSizeSelector .segmented-btn").forEach(btn => {
+    btn.onclick = () => {
+      state.widgetForm.size = btn.dataset.size;
+      updateWidgetFormInputs();
+      renderWidgetLivePreview();
+    };
+  });
+  document.getElementById("fieldWidgetTheme").onchange = e => {
+    state.widgetForm.theme = e.target.value;
+    renderWidgetLivePreview();
+  };
+  document.getElementById("fieldWeatherCity").oninput = e => {
+    state.widgetForm.city = e.target.value;
+    renderWidgetLivePreview();
+  };
+  document.getElementById("fieldCdTitle").oninput = e => {
+    state.widgetForm.title = e.target.value;
+    renderWidgetLivePreview();
+  };
 
-  // 苹果 Squircle (高阶连续曲率超椭圆绘制算法)
-  function drawAppleSquircle(ctx, x, y, size) {
-    ctx.beginPath();
-    const r = size * 0.225; // 仿 iOS 官方比例
-    const w = size;
-    const h = size;
+  // 图标工坊与 Favicon 抓取
+  document.getElementById("btnSniffFavicon").onclick = handleSniffFavicon;
+  document.getElementById("dockerSelect").onchange = handleDockerSelect;
 
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.bezierCurveTo(x + w - r * 0.45, y, x + w, y + r * 0.45, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.bezierCurveTo(x + w, y + h - r * 0.45, x + w - r * 0.45, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.bezierCurveTo(x + r * 0.45, y + h, x, y + h - r * 0.45, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.bezierCurveTo(x, y + r * 0.45, x + r * 0.45, y, x + r, y);
-    ctx.closePath();
-  }
+  document.getElementById("btnUploadLocal").onclick = () => {
+    document.getElementById("localFileInput").click();
+  };
+  document.getElementById("localFileInput").onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => loadCropperImage(ev.target.result);
+    reader.readAsDataURL(file);
+  };
 
-  // 渲染图标工坊画布 (256x256 高清输出)
-  function renderStudioCanvas() {
-    const canvas = dom.studioCanvas;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const size = 256;
-    canvas.width = size;
-    canvas.height = size;
+  // 搜索与过滤
+  document.getElementById("searchInput").oninput = e => {
+    state.searchKeyword = e.target.value;
+    renderIcons();
+  };
+  document.querySelectorAll("#filterSegment .segmented-btn").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll("#filterSegment .segmented-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      state.activeFilter = btn.dataset.filter;
+      renderIcons();
+    };
+  });
 
-    ctx.clearRect(0, 0, size, size);
+  // 小组件表单实时响应预览
+  document.getElementById("fieldCdDate").oninput = () => {
+    state.widgetForm.targetDate = document.getElementById("fieldCdDate").value;
+    renderWidgetLivePreview();
+  };
+  document.getElementById("fieldClockStyle").onchange = () => {
+    state.widgetForm.style = document.getElementById("fieldClockStyle").value;
+    renderWidgetLivePreview();
+  };
+  document.getElementById("fieldNotesTitle").oninput = () => {
+    state.widgetForm.title = document.getElementById("fieldNotesTitle").value;
+    renderWidgetLivePreview();
+  };
+  document.getElementById("fieldNotesContent").oninput = () => {
+    state.widgetForm.content = document.getElementById("fieldNotesContent").value;
+    renderWidgetLivePreview();
+  };
 
-    // 1. 设置裁剪路径
-    ctx.save();
-    if (studioState.shape === "squircle") {
-      drawAppleSquircle(ctx, 0, 0, size);
-      ctx.clip();
-    } else if (studioState.shape === "circle") {
-      ctx.beginPath();
-      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
-      ctx.closePath();
-      ctx.clip();
-    } else if (studioState.shape === "round") {
-      const r = size * 0.18;
-      ctx.beginPath();
-      ctx.roundRect(0, 0, size, size, r);
-      ctx.closePath();
-      ctx.clip();
+  // 局域网输入框失去焦点时智能自动探测 Favicon
+  document.getElementById("fieldLan").addEventListener("blur", () => {
+    const val = document.getElementById("fieldLan").value.trim();
+    if (val && !state.cropper.image) {
+      handleSniffFavicon();
     }
+  });
 
-    // 2. 绘制背景底色
-    if (studioState.bgType === "solid") {
-      ctx.fillStyle = studioState.bgColor;
-      ctx.fillRect(0, 0, size, size);
-    } else if (studioState.bgType === "gradient") {
-      const [c1, c2, deg] = studioState.bgGradient;
-      const rad = (deg * Math.PI) / 180;
-      const x1 = (size / 2) - (Math.cos(rad) * size) / 2;
-      const y1 = (size / 2) - (Math.sin(rad) * size) / 2;
-      const x2 = (size / 2) + (Math.cos(rad) * size) / 2;
-      const y2 = (size / 2) + (Math.sin(rad) * size) / 2;
-      const grad = ctx.createLinearGradient(x1, y1, x2, y2);
-      grad.addColorStop(0, c1);
-      grad.addColorStop(1, c2);
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, size, size);
-    }
-
-    // 3. 绘制 Logo 主体 (留白与缩放控制)
-    if (studioState.img) {
-      const paddingPx = size * studioState.padding;
-      const availSize = size - paddingPx * 2;
-      const imgW = studioState.img.naturalWidth || studioState.img.width || 1;
-      const imgH = studioState.img.naturalHeight || studioState.img.height || 1;
-      const aspect = imgW / imgH;
-
-      let drawW, drawH;
-      if (aspect >= 1) {
-        drawW = availSize * studioState.scale;
-        drawH = drawW / aspect;
-      } else {
-        drawH = availSize * studioState.scale;
-        drawW = drawH * aspect;
-      }
-
-      const drawX = (size - drawW) / 2;
-      const drawY = (size - drawH) / 2;
-
-      // 可选 Logo 柔和立体阴影
-      if (studioState.shadow && studioState.bgType !== "transparent") {
-        ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
-        ctx.shadowBlur = 12;
-        ctx.shadowOffsetY = 4;
-      }
-
-      ctx.drawImage(studioState.img, drawX, drawY, drawW, drawH);
-    }
-
-    ctx.restore();
-
-    // 导出 base64
-    studioState.lastExportDataUrl = canvas.toDataURL("image/png");
-    dom.fieldIconDataUrl.value = studioState.lastExportDataUrl;
-  }
-
-  // -------------------------------------------------------------
-  // 嗅探与上传逻辑 (重点解决填端口无法获取图标)
-  // -------------------------------------------------------------
-  async function triggerSniff() {
-    let url = dom.fieldLan.value.trim() || dom.fieldWan.value.trim();
-    if (!url && dom.dockerSelect.value) {
-      const chosen = state.dockerContainers.find(c => c.name === dom.dockerSelect.value);
-      if (chosen && chosen.hostPort) url = chosen.hostPort;
-    }
-    if (!url) {
-      showToast("请先在左侧填入访问端口或内网地址", "error");
-      dom.fieldLan.focus();
-      return;
-    }
-
-    const sniffBtn = dom.btnSniffFavicon;
-    sniffBtn.disabled = true;
-    sniffBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> <span>探测中...</span>';
-
+  // 刷新按钮增强
+  document.getElementById("btnRefresh").onclick = async () => {
+    const icon = document.getElementById("refreshIcon");
+    if (icon) icon.classList.add("spin");
     try {
-      const res = await api("/api/fetch-favicon", {
-        method: "POST",
-        body: {
-          url: url,
-          title: dom.fieldTitle.value.trim(),
-          name: dom.dockerSelect.value
-        }
-      });
-      if (res.success && res.dataUrl) {
-        loadImgToStudio(res.dataUrl, () => {
-          showToast("成功获取高清图标！已载入工坊实时渲染", "success");
-        });
-      }
+      await Promise.all([
+        loadIcons(),
+        loadWidgets(),
+        loadDockerContainers(),
+        checkDesktopStatus()
+      ]);
+      showToast("数据已刷新", "success");
     } catch (e) {
-      showToast(e.message || "未能探测到图标，可从常用品牌库选用或上传", "error");
+      showToast("刷新数据: " + (e.message || "已同步"), "info");
     } finally {
-      sniffBtn.disabled = false;
-      sniffBtn.innerHTML = '<i class="fa fa-globe"></i> <span>抓取 Favicon</span>';
+      if (icon) icon.classList.remove("spin");
     }
+  };
+
+  // 挂载全局方法确保 inline onclick 100% 可调用
+  window.editIcon = editIcon;
+  window.deleteIcon = deleteIcon;
+  window.editWidget = editWidget;
+  window.deleteWidget = deleteWidget;
+
+  // 初始化画布拖拽平移与滚轮缩放事件
+  initCanvasEvents();
+
+  // 支持 URL 参数直达 Tab 或弹窗（便于联动与自动化测试）
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("tab") === "widgets") {
+    const wBtn = document.querySelector('button[data-tab="widgets"]');
+    if (wBtn) wBtn.click();
   }
-
-  // 保存图标数据并生成
-  async function handleSave() {
-    const title = dom.fieldTitle.value.trim();
-    if (!title) return showToast("请输入应用标题", "error");
-
-    const btn = dom.btnSaveIcon;
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> 正在生成...';
-
-    try {
-      const payload = {
-        id: dom.fieldId.value || undefined,
-        fndata_Title: title,
-        fndata_Lan: dom.fieldLan.value.trim(),
-        fndata_Wan: dom.fieldWan.value.trim(),
-        fndata_LanPic: dom.fieldLanPic.value,
-        OpenInPage: parseInt(dom.fieldOpenInPage.value, 10),
-        fndata_Protocol: parseInt(dom.fieldProtocol.value, 10),
-        iconDataUrl: studioState.lastExportDataUrl,
-        generateNative: dom.fieldGenerateNative.checked,
-        appname: dom.fieldAppname.value || undefined
-      };
-
-      const res = await api("/api/icons", {
-        method: "POST",
-        body: payload
-      });
-
-      if (res.success) {
-        showToast("应用图标保存成功！", "success");
-        closeEditModal();
-        await loadIcons();
-      }
-    } catch (e) {
-      showToast("保存失败: " + e.message, "error");
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fa fa-check"></i> 保存并应用';
-    }
+  if (params.get("modal") === "edit") {
+    openAddIconModal();
+  } else if (params.get("modal") === "widget") {
+    openAddWidgetModal();
   }
-
-  // 绑定交互事件
-  function bindEvents() {
-    // 顶部操作
-    dom.btnRefresh.onclick = () => refreshData();
-    dom.btnAddIcon.onclick = () => openEditModal(null);
-    dom.btnSettings.onclick = () => dom.settingsModal.classList.add("active");
-    dom.btnCloseSettings.onclick = () => dom.settingsModal.classList.remove("active");
-    dom.btnCancelSettings.onclick = () => dom.settingsModal.classList.remove("active");
-    dom.btnCloseEditModal.onclick = closeEditModal;
-    dom.btnCancelEdit.onclick = closeEditModal;
-    dom.btnSaveIcon.onclick = handleSave;
-
-    // Docker 指标卡片点击快速选择
-    dom.cardDockerStat.onclick = () => {
-      openEditModal(null);
-      setTimeout(() => dom.dockerSelect.focus(), 150);
-    };
-
-    // Docker 容器快捷导入联动
-    dom.dockerSelect.onchange = () => {
-      const name = dom.dockerSelect.value;
-      if (!name) return;
-      const c = state.dockerContainers.find(item => item.name === name);
-      if (c) {
-        if (!dom.fieldTitle.value.trim()) {
-          // 格式化美化名称：如 open-ai-canvas-web-1 => OpenAI Canvas
-          dom.fieldTitle.value = c.matchedBrand || c.name.replace(/-[0-9]+$/, "").replace(/[-_]/g, " ");
-        }
-        if (c.hostPort) {
-          dom.fieldLan.value = c.hostPort;
-          updateLanHint(c.hostPort);
-        }
-        updateMockupTitle();
-
-        // 若已匹配品牌预设，自动填入
-        if (c.presetDataUrl) {
-          loadImgToStudio(c.presetDataUrl, () => {
-            studioState.bgType = "solid";
-            renderStudioCanvas();
-          });
-        } else if (c.hostPort) {
-          // 自动触发探测
-          triggerSniff();
-        }
-      }
-    };
-
-    // 端口输入实时提示
-    dom.fieldLan.oninput = () => {
-      updateLanHint(dom.fieldLan.value);
-    };
-
-    dom.fieldTitle.oninput = updateMockupTitle;
-
-    // 抓取 Favicon
-    dom.btnSniffFavicon.onclick = triggerSniff;
-
-    // 上传图片
-    dom.btnUploadLocal.onclick = () => dom.localFileInput.click();
-    dom.localFileInput.onchange = (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        loadImgToStudio(evt.target.result);
-      };
-      reader.readAsDataURL(file);
-    };
-
-    // 形状遮罩分段切换
-    dom.shapeSelector.querySelectorAll(".segmented-btn").forEach(btn => {
-      btn.onclick = () => {
-        dom.shapeSelector.querySelectorAll(".segmented-btn").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        studioState.shape = btn.getAttribute("data-shape");
-        renderStudioCanvas();
-      };
-    });
-
-    // 留白内边距与缩放
-    dom.sliderPadding.oninput = () => {
-      const val = parseInt(dom.sliderPadding.value, 10);
-      dom.valPadding.textContent = `${val}%`;
-      studioState.padding = val / 100;
-      renderStudioCanvas();
-    };
-
-    dom.sliderScale.oninput = () => {
-      const val = parseInt(dom.sliderScale.value, 10);
-      dom.valScale.textContent = `${val}%`;
-      studioState.scale = val / 100;
-      renderStudioCanvas();
-    };
-
-    dom.checkLogoShadow.onchange = () => {
-      studioState.shadow = dom.checkLogoShadow.checked;
-      renderStudioCanvas();
-    };
-
-    // 筛选标签切换
-    dom.filterSegment.querySelectorAll(".segmented-btn").forEach(btn => {
-      btn.onclick = () => {
-        dom.filterSegment.querySelectorAll(".segmented-btn").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        state.filter = btn.getAttribute("data-filter");
-        renderIconGrid();
-      };
-    });
-
-    // 搜索实时过滤
-    dom.searchInput.oninput = () => {
-      state.searchQuery = dom.searchInput.value.trim();
-      renderIconGrid();
-    };
-
-    // 快捷键 / 聚焦搜索
-    window.addEventListener("keydown", (e) => {
-      if (e.key === "/" && document.activeElement.tagName !== "INPUT") {
-        e.preventDefault();
-        dom.searchInput.focus();
-      }
-      if (e.key === "Escape") {
-        closeEditModal();
-        dom.settingsModal.classList.remove("active");
-      }
-    });
-
-    // 保存密码
-    dom.btnSavePassword.onclick = async () => {
-      const np = dom.newPassword.value;
-      const cp = dom.confirmPassword.value;
-      if (np !== cp) return showToast("两次输入的新密码不一致", "error");
-      try {
-        const res = await api("/api/change-password", {
-          method: "POST",
-          body: { oldPassword: dom.oldPassword.value, newPassword: np }
-        });
-        if (res.success) {
-          showToast("管理密码已成功更新", "success");
-          dom.settingsModal.classList.remove("active");
-        }
-      } catch (e) {
-        showToast("修改密码失败: " + e.message, "error");
-      }
-    };
-
-    // 登录
-    dom.btnSubmitLogin.onclick = async () => {
-      const pwd = dom.loginPassword.value;
-      try {
-        const res = await api("/api/login", {
-          method: "POST",
-          body: { password: pwd }
-        });
-        if (res.success) {
-          state.token = res.token;
-          localStorage.setItem("fndesk_token", res.token);
-          dom.loginModal.classList.remove("active");
-          showToast("登录成功", "success");
-          await refreshData();
-        }
-      } catch (e) {
-        showToast("登录失败: " + e.message, "error");
-      }
-    };
-  }
-
-  function openLoginModal() {
-    dom.loginModal.classList.add("active");
-  }
-
-  function escapeHtml(str) {
-    if (!str) return "";
-    return String(str)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
-
-  // 启动
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initApp);
-  } else {
-    initApp();
-  }
-})();
+});

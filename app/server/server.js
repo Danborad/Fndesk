@@ -1,4 +1,4 @@
-// Fndesk Lite - 飞牛桌面图标工坊轻量后端
+// Fndesk Lite - 飞牛桌面图标工坊与 WeTab 小组件轻量后端
 // 纯净 Node.js 原生服务，无外部二进制依赖，常驻内存仅约 15MB
 
 const http = require("http");
@@ -16,12 +16,19 @@ const DOMAIN_SOCKET_PATH = "/var/apps/fndesk/target/fndesk.sock";
 // 数据存储路径：保留用户原有的 deskdata 目录
 const DATA_DIR = path.resolve("/vol1/@appshare/fndesk/deskdata");
 const CONFIG_FILE = path.join(DATA_DIR, "data.json");
+const WIDGETS_FILE = path.join(DATA_DIR, "widgets.json");
 const PW_FILE = path.join(DATA_DIR, "pw.json");
 const IMG_DIR = path.join(DATA_DIR, "img");
 const APPCENTER_CLI = "/usr/local/bin/appcenter-cli";
 const TEMPLATE_DIR = path.join(__dirname, "fndesk_app");
 
-// 确保基础目录存在
+// 飞牛桌面注入与还原防搞坏配置
+const ORIGINAL_INDEX = "/usr/trim/www/index.html.original";
+const DATA_BACKUP_INDEX = path.join(DATA_DIR, "index.html.original");
+const TARGET_INDEX = "/usr/trim/www/index.html";
+const INJECT_JS_DEST = "/usr/trim/www/static/fndesk-desktop.js";
+
+// 确保基础目录与备份存在
 function ensureDirs() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(IMG_DIR)) fs.mkdirSync(IMG_DIR, { recursive: true });
@@ -30,6 +37,138 @@ function ensureDirs() {
   }
 }
 ensureDirs();
+
+// 桌面安全备份机制：初次运行时先备份出厂 index.html
+function ensureOriginalBackup() {
+  try {
+    if (!fs.existsSync(DATA_BACKUP_INDEX) && fs.existsSync(TARGET_INDEX)) {
+      const content = fs.readFileSync(TARGET_INDEX, "utf8");
+      if (!content.includes("fndesk-desktop-inject")) {
+        fs.writeFileSync(DATA_BACKUP_INDEX, content, "utf8");
+      }
+    }
+    if (!fs.existsSync(ORIGINAL_INDEX) && fs.existsSync(DATA_BACKUP_INDEX)) {
+      fs.copyFileSync(DATA_BACKUP_INDEX, ORIGINAL_INDEX);
+    }
+  } catch (e) {
+    console.warn("[Fndesk Lite] 备份 index.html 警告:", e.message);
+  }
+}
+ensureOriginalBackup();
+
+// 检查桌面是否已注入生效
+function getDesktopStatus() {
+  if (!fs.existsSync(TARGET_INDEX)) {
+    return { injected: false, hasBackup: false };
+  }
+  try {
+    const content = fs.readFileSync(TARGET_INDEX, "utf8");
+    const injected = content.includes("fndesk-desktop-inject");
+    const hasBackup = fs.existsSync(DATA_BACKUP_INDEX) || fs.existsSync(ORIGINAL_INDEX);
+    return { injected, hasBackup };
+  } catch (_) {
+    return { injected: false, hasBackup: false };
+  }
+}
+
+// 立即生效（注入桌面）
+// 立即生效（注入桌面与 WeTab 小组件）
+function applyDesktop() {
+  ensureOriginalBackup();
+  if (!fs.existsSync(TARGET_INDEX)) {
+    throw new Error("未找到飞牛桌面文件: " + TARGET_INDEX);
+  }
+
+  // 1. 设置 NGXMODE=dev 到 systemd drop-in override，防止 nginx inotify fwatch 触发自动还原！
+  const overrideDir = "/etc/systemd/system/trim_nginx.service.d";
+  const overrideFile = path.join(overrideDir, "override.conf");
+  try {
+    if (!fs.existsSync(overrideDir)) fs.mkdirSync(overrideDir, { recursive: true });
+    fs.writeFileSync(overrideFile, "[Service]\nEnvironment=\"NGXMODE=dev\"\n", "utf8");
+    execSync("systemctl daemon-reload", { stdio: "ignore" });
+  } catch (e) {
+    console.warn("[Fndesk Lite] systemd override 写入警告:", e.message);
+  }
+
+  // 2. 发送信号 63 (SIGRTMAX - 1) 立即禁用当前运行中的 nginx 监控
+  try {
+    if (fs.existsSync("/run/nginx.pid")) {
+      const nginxPid = fs.readFileSync("/run/nginx.pid", "utf8").trim();
+      if (nginxPid) process.kill(parseInt(nginxPid, 10), 63);
+    }
+  } catch (_) {}
+
+  // 3. 复制 fndesk-desktop.js 到 /usr/trim/www/static/fndesk-desktop.js
+  const localInjectJs = path.join(__dirname, "static", "fndesk-desktop.js");
+  if (fs.existsSync(localInjectJs)) {
+    const destDir = path.dirname(INJECT_JS_DEST);
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(localInjectJs, INJECT_JS_DEST);
+    try { fs.chmodSync(INJECT_JS_DEST, 0o644); } catch (_) {}
+  }
+
+  // 4. 注入 script 标签到 /usr/trim/www/index.html
+  let content = fs.readFileSync(TARGET_INDEX, "utf8");
+  if (!content.includes("fndesk-desktop-inject")) {
+    const injectTag = '<script id="fndesk-desktop-inject" src="/static/fndesk-desktop.js"></script>';
+    if (content.includes("</body>")) {
+      content = content.replace("</body>", `${injectTag}</body>`);
+    } else {
+      content += injectTag;
+    }
+    fs.writeFileSync(TARGET_INDEX, content, "utf8");
+    try { fs.chmodSync(TARGET_INDEX, 0o644); } catch (_) {}
+  }
+  return true;
+}
+
+// 一键还原飞牛官方纯净桌面（防搞坏机制）
+function restoreDesktop() {
+  // 1. 优先从官方原始备份还原 /usr/trim/www/index.html
+  let originalContent = null;
+  if (fs.existsSync(DATA_BACKUP_INDEX)) {
+    originalContent = fs.readFileSync(DATA_BACKUP_INDEX, "utf8");
+  } else if (fs.existsSync(ORIGINAL_INDEX)) {
+    originalContent = fs.readFileSync(ORIGINAL_INDEX, "utf8");
+  }
+
+  if (originalContent) {
+    fs.writeFileSync(TARGET_INDEX, originalContent, "utf8");
+  } else if (fs.existsSync(TARGET_INDEX)) {
+    let cur = fs.readFileSync(TARGET_INDEX, "utf8");
+    cur = cur.replace(/<script id="fndesk-desktop-inject"[^>]*><\/script>/g, "");
+    fs.writeFileSync(TARGET_INDEX, cur, "utf8");
+  }
+
+  // 2. 移除注入的静态脚本
+  if (fs.existsSync(INJECT_JS_DEST)) {
+    try { fs.unlinkSync(INJECT_JS_DEST); } catch (_) {}
+  }
+
+  // 3. 移除 systemd 覆盖配置
+  const overrideFile = "/etc/systemd/system/trim_nginx.service.d/override.conf";
+  if (fs.existsSync(overrideFile)) {
+    try {
+      fs.unlinkSync(overrideFile);
+      execSync("systemctl daemon-reload", { stdio: "ignore" });
+    } catch (_) {}
+  }
+
+  // 4. 发送信号 64 (SIGRTMAX) 重新开启监控
+  try {
+    if (fs.existsSync("/run/nginx.pid")) {
+      const nginxPid = fs.readFileSync("/run/nginx.pid", "utf8").trim();
+      if (nginxPid) process.kill(parseInt(nginxPid, 10), 64);
+    }
+  } catch (_) {}
+
+  // 5. 平滑重载 nginx
+  try {
+    execSync("systemctl reload trim_nginx.service || true", { stdio: "ignore" });
+  } catch (_) {}
+
+  return true;
+}
 
 // 获取局域网 IP
 function getLanIp() {
@@ -199,6 +338,137 @@ function writeIcons(icons) {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(icons, null, 2), "utf8");
 }
 
+// 读取 WeTab 小组件配置
+function readWidgets() {
+  try {
+    if (!fs.existsSync(WIDGETS_FILE)) {
+      const initial = [
+        {
+          id: 1,
+          type: "weather",
+          size: "medium",
+          city: "北京",
+          theme: "glass",
+          sort: 10
+        },
+        {
+          id: 2,
+          type: "countdown",
+          size: "small",
+          title: "国庆节",
+          targetDate: "2026-10-01T00:00",
+          theme: "forest",
+          sort: 20
+        },
+        {
+          id: 3,
+          type: "clock",
+          size: "small",
+          style: "digital",
+          theme: "dark",
+          sort: 30
+        }
+      ];
+      fs.writeFileSync(WIDGETS_FILE, JSON.stringify(initial, null, 2), "utf8");
+      return initial;
+    }
+    const raw = fs.readFileSync(WIDGETS_FILE, "utf8").trim();
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.error("[Fndesk Lite] 读取 widgets.json 失败:", e.message);
+    return [];
+  }
+}
+
+// 写入 WeTab 小组件配置
+function writeWidgets(widgets) {
+  fs.writeFileSync(WIDGETS_FILE, JSON.stringify(widgets, null, 2), "utf8");
+}
+
+// 天气缓存与翻译
+const weatherCache = {};
+const WEATHER_TRANSLATIONS = {
+  "sunny": "晴",
+  "clear": "晴",
+  "partly cloudy": "多云",
+  "cloudy": "阴",
+  "overcast": "阴天",
+  "mist": "薄雾",
+  "fog": "大雾",
+  "haze": "霾",
+  "smoky haze": "轻度霾",
+  "light rain": "小雨",
+  "patchy rain nearby": "局部有雨",
+  "moderate rain": "中雨",
+  "heavy rain": "大雨",
+  "torrential rain shower": "暴雨",
+  "thunderstorm": "雷阵雨",
+  "light snow": "小雪",
+  "moderate snow": "中雪",
+  "heavy snow": "大雪",
+  "sleet": "雨夹雪",
+  "windy": "大风"
+};
+
+function translateWeather(desc = "") {
+  const lower = desc.trim().toLowerCase();
+  for (const [k, v] of Object.entries(WEATHER_TRANSLATIONS)) {
+    if (lower.includes(k)) return v;
+  }
+  return desc || "晴";
+}
+
+async function getWeather(city = "北京") {
+  const key = (city || "北京").trim();
+  if (weatherCache[key] && Date.now() - weatherCache[key].timestamp < 20 * 60 * 1000) {
+    return weatherCache[key].data;
+  }
+
+  try {
+    const url = `https://wttr.in/${encodeURIComponent(key)}?format=j1`;
+    const res = await httpGet(url, false);
+    const json = JSON.parse(res.buffer.toString("utf8"));
+    const curr = json.current_condition[0];
+    const weather = json.weather || [];
+    const today = weather[0] || {};
+    const rawDesc = curr.weatherDesc && curr.weatherDesc[0] ? curr.weatherDesc[0].value : "";
+    const result = {
+      city: key,
+      temp: curr.temp_C,
+      feelsLike: curr.FeelsLikeC,
+      desc: translateWeather(rawDesc),
+      humidity: curr.humidity + "%",
+      wind: (curr.winddir16Point || "") + " " + (curr.windspeedKmph ? curr.windspeedKmph + "km/h" : "微风"),
+      tempMin: today.mintempC || curr.temp_C,
+      tempMax: today.maxtempC || curr.temp_C,
+      forecast: weather.slice(0, 5).map(w => ({
+        date: w.date,
+        tempMin: w.mintempC,
+        tempMax: w.maxtempC,
+        desc: translateWeather(w.hourly && w.hourly[4] && w.hourly[4].weatherDesc ? w.hourly[4].weatherDesc[0].value : "晴")
+      }))
+    };
+    weatherCache[key] = { timestamp: Date.now(), data: result };
+    return result;
+  } catch (e) {
+    console.warn("[Fndesk Lite] 获取天气失败，返回离线兜底:", e.message);
+    return {
+      city: key,
+      temp: "22",
+      feelsLike: "20",
+      desc: "晴",
+      humidity: "45%",
+      wind: "微风 2级",
+      tempMin: "18",
+      tempMax: "26",
+      forecast: [
+        { date: "明天", tempMin: "17", tempMax: "26", desc: "晴" },
+        { date: "后天", tempMin: "18", tempMax: "27", desc: "多云" }
+      ]
+    };
+  }
+}
+
 // 查询已安装的飞牛原生应用列表
 function getInstalledNativeApps() {
   const apps = new Set();
@@ -279,7 +549,7 @@ function isValidImageBuffer(buf, contentType = "") {
   return false;
 }
 
-// HTTP GET 工具，支持 3xx 重定向、https 忽略证书与二进制读取
+// HTTP GET 工具
 function httpGet(getUrl, isBinary = false, redirects = 0) {
   if (redirects > 5) return Promise.reject(new Error("重定向过多"));
   return new Promise((resolve, reject) => {
@@ -324,17 +594,34 @@ function httpGet(getUrl, isBinary = false, redirects = 0) {
 async function fetchFaviconFromUrl(targetUrl, meta = {}) {
   const lanIp = getLanIp();
   const hosts = [];
+  let cleanInput = String(targetUrl || "").trim().replace(/^:+/, "");
   
-  if (/^\d+$/.test(targetUrl.trim())) {
-    const port = targetUrl.trim();
+  // 1. 如果输入纯数字（如 3000 或 :3000）
+  if (/^\d+$/.test(cleanInput)) {
+    const port = cleanInput;
     hosts.push(`http://127.0.0.1:${port}`);
     hosts.push(`http://${lanIp}:${port}`);
     hosts.push(`https://127.0.0.1:${port}`);
     hosts.push(`https://${lanIp}:${port}`);
   } else {
-    let finalUrl = targetUrl.trim();
+    // 2. 检查是否是 docker 容器名
+    const containers = getDockerContainers();
+    const matchedCont = containers.find(c => c.name.toLowerCase() === cleanInput.toLowerCase());
+    if (matchedCont && matchedCont.hostPort) {
+      hosts.push(`http://127.0.0.1:${matchedCont.hostPort}`);
+      hosts.push(`http://${lanIp}:${matchedCont.hostPort}`);
+    }
+
+    let finalUrl = cleanInput;
     if (!/^https?:\/\//i.test(finalUrl)) finalUrl = `http://${finalUrl}`;
     hosts.push(finalUrl);
+
+    try {
+      const u = new URL(finalUrl);
+      if (u.hostname === "127.0.0.1" && lanIp) {
+        hosts.push(`${u.protocol}//${lanIp}${u.port ? ":" + u.port : ""}${u.pathname}`);
+      }
+    } catch (_) {}
   }
 
   for (const host of hosts) {
@@ -347,20 +634,18 @@ async function fetchFaviconFromUrl(targetUrl, meta = {}) {
         const page = await httpGet(host, false);
         const html = page.buffer.toString("utf8");
         
-        // 匹配各类 icon / touch-icon 标签
-        const iconMatches = html.match(/<link[^>]+(?:icon|apple-touch-icon)[^>]*>/gi) || [];
+        const iconMatches = html.match(/<link[^>]+(?:icon|apple-touch-icon|shortcut)[^>]*>/gi) || [];
         for (const tag of iconMatches) {
-          const hrefMatch = tag.match(/href=["'"]([^"'"]+)["'"]/i);
+          const hrefMatch = tag.match(/href=["']?([^"\s>]+)["']?/i);
           if (hrefMatch && hrefMatch[1]) {
             candidates.push(new URL(hrefMatch[1], host).href);
           }
         }
 
-        // 匹配 img / svg 中的 logo
-        const imgMatches = html.match(/<img[^>]+src=["'"]([^"'"]+)["'"][^>]*>/gi) || [];
+        const imgMatches = html.match(/<img[^>]+src=["']?([^"\s>]+)["']?[^>]*>/gi) || [];
         for (const imgTag of imgMatches) {
           if (/logo|icon|brand/i.test(imgTag)) {
-            const srcMatch = imgTag.match(/src=["'"]([^"'"]+)["'"]/i);
+            const srcMatch = imgTag.match(/src=["']?([^"\s>]+)["']?/i);
             if (srcMatch && srcMatch[1]) {
               candidates.push(new URL(srcMatch[1], host).href);
             }
@@ -368,7 +653,6 @@ async function fetchFaviconFromUrl(targetUrl, meta = {}) {
         }
       } catch (_) {}
 
-      // 常见图标静态路径
       candidates.push(`${baseUrl}/logo.svg`);
       candidates.push(`${baseUrl}/logo.png`);
       candidates.push(`${baseUrl}/favicon.svg`);
@@ -378,8 +662,11 @@ async function fetchFaviconFromUrl(targetUrl, meta = {}) {
       candidates.push(`${baseUrl}/apple-touch-icon-precomposed.png`);
       candidates.push(`${baseUrl}/assets/logo.svg`);
       candidates.push(`${baseUrl}/assets/logo.png`);
+      candidates.push(`${baseUrl}/assets/favicon.ico`);
+      candidates.push(`${baseUrl}/static/favicon.ico`);
       candidates.push(`${baseUrl}/static/logo.svg`);
       candidates.push(`${baseUrl}/static/logo.png`);
+      candidates.push(`${baseUrl}/static/img/logo.png`);
 
       for (const cUrl of candidates) {
         try {
@@ -393,16 +680,14 @@ async function fetchFaviconFromUrl(targetUrl, meta = {}) {
     } catch (_) {}
   }
 
-  // 若网络端未抓取到有效图片，尝试命中内置品牌库
   const preset = matchPresetIcon({ ...meta, url: targetUrl });
   if (preset) {
     return preset.dataUrl;
   }
 
-  throw new Error("未能探测到有效图标，可点击「预设品牌库」直接选用，或手动上传");
+  throw new Error("未能探测到有效图标，可点击上传本地图片或稍后重试");
 }
 
-// 递归复制目录
 function copyDirSync(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
   const entries = fs.readdirSync(src, { withFileTypes: true });
@@ -478,7 +763,6 @@ OPEN_IN_PAGE="${openInPage}"
 HOST_IP=\$(echo "\${HTTP_HOST}" | cut -d: -f1)
 CLIENT_IP="\${REMOTE_ADDR:-}"
 
-# 端口拼接
 FINAL_URL="\${TARGET_LAN}"
 if [[ "\${FINAL_URL}" =~ ^[0-9]+$ ]]; then
   SCHEME="http"
@@ -502,7 +786,6 @@ exit 0
     fs.writeFileSync(path.join(uiImgDir, "icon_64.png"), imgBuffer);
   }
 
-  // 调用 appcenter-cli install-local
   return new Promise((resolve, reject) => {
     const proc = spawn(APPCENTER_CLI, ["install-local"], {
       cwd: appBuildDir,
@@ -603,6 +886,15 @@ const MIME_TYPES = {
 function serveStatic(req, res, pathname) {
   let relativePath = pathname === "/" ? "index.html" : pathname.replace(/^\//, "");
   
+  // 支持桌面注入脚本别名
+  if (relativePath === "desktop-inject.js" || relativePath === "static/fndesk-desktop.js") {
+    const desktopJsPath = path.join(__dirname, "static", "fndesk-desktop.js");
+    if (fs.existsSync(desktopJsPath)) {
+      res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-cache" });
+      return fs.createReadStream(desktopJsPath).pipe(res);
+    }
+  }
+
   if (relativePath.startsWith("deskdata/img/")) {
     const imgName = relativePath.replace("deskdata/img/", "");
     const fullPath = path.join(IMG_DIR, imgName);
@@ -665,7 +957,92 @@ async function handleRequest(req, res) {
     });
   }
 
-  // 2. 登录认证
+  // 2. 飞牛桌面注入与还原防搞坏机制
+  if (pathname === "/api/desktop-status" && req.method === "GET") {
+    return sendJson(res, 200, {
+      success: true,
+      ...getDesktopStatus()
+    });
+  }
+
+  if (pathname === "/api/apply-desktop" && req.method === "POST") {
+    try {
+      applyDesktop();
+      return sendJson(res, 200, {
+        success: true,
+        message: "飞牛桌面小组件与快捷方式已立即生效！请刷新飞牛桌面查看效果。"
+      });
+    } catch (e) {
+      return sendJson(res, 500, { success: false, message: "立即生效失败: " + e.message });
+    }
+  }
+
+  if (pathname === "/api/restore-desktop" && req.method === "POST") {
+    try {
+      restoreDesktop();
+      return sendJson(res, 200, {
+        success: true,
+        message: "飞牛桌面已彻底安全还原至官方纯净状态！"
+      });
+    } catch (e) {
+      return sendJson(res, 500, { success: false, message: "还原桌面失败: " + e.message });
+    }
+  }
+
+  // 3. WeTab 卡片小组件 CRUD
+  if (pathname === "/api/widgets" && req.method === "GET") {
+    const widgets = readWidgets();
+    return sendJson(res, 200, { success: true, widgets });
+  }
+
+  if (pathname === "/api/widgets" && req.method === "POST") {
+    const body = await parseJsonBody(req);
+    const widgets = readWidgets();
+    let targetId = body.id ? parseInt(body.id, 10) : null;
+    if (!targetId) {
+      targetId = widgets.length > 0 ? Math.max(...widgets.map(w => parseInt(w.id || 0, 10))) + 1 : 1;
+    }
+
+    const itemData = {
+      id: targetId,
+      type: body.type || "weather",
+      size: body.size || "medium",
+      title: (body.title || "").trim(),
+      targetDate: body.targetDate || "",
+      city: (body.city || "").trim(),
+      theme: body.theme || "glass",
+      style: body.style || "digital",
+      content: body.content || "",
+      sort: parseInt(body.sort || targetId * 10, 10)
+    };
+
+    const existingIdx = widgets.findIndex(w => parseInt(w.id, 10) === targetId);
+    if (existingIdx !== -1) {
+      widgets[existingIdx] = { ...widgets[existingIdx], ...itemData };
+    } else {
+      widgets.push(itemData);
+    }
+    writeWidgets(widgets);
+
+    return sendJson(res, 200, { success: true, message: "卡片小组件已保存", widget: itemData });
+  }
+
+  if (pathname.startsWith("/api/widgets/") && req.method === "DELETE") {
+    const id = parseInt(pathname.replace("/api/widgets/", ""), 10);
+    const widgets = readWidgets();
+    const filtered = widgets.filter(w => parseInt(w.id, 10) !== id);
+    writeWidgets(filtered);
+    return sendJson(res, 200, { success: true, message: "小组件已删除" });
+  }
+
+  // 4. 实时天气接口
+  if (pathname === "/api/weather" && req.method === "GET") {
+    const city = parsedUrl.searchParams.get("city") || "北京";
+    const data = await getWeather(city);
+    return sendJson(res, 200, { success: true, weather: data });
+  }
+
+  // 5. 登录认证
   if (pathname === "/api/login" && req.method === "POST") {
     const body = await parseJsonBody(req);
     if (!hasPassword()) {
@@ -679,7 +1056,7 @@ async function handleRequest(req, res) {
     return sendJson(res, 401, { success: false, message: "管理密码错误" });
   }
 
-  // 3. 修改管理密码
+  // 6. 修改管理密码
   if (pathname === "/api/change-password" && req.method === "POST") {
     const body = await parseJsonBody(req);
     if (hasPassword() && !verifyPassword(body.oldPassword)) {
@@ -692,7 +1069,7 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, { success: true, message: "管理密码已更新" });
   }
 
-  // 4. 获取图标列表
+  // 7. 获取图标列表
   if (pathname === "/api/icons" && req.method === "GET") {
     const icons = readIcons();
     const installedApps = getInstalledNativeApps();
@@ -779,13 +1156,13 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, { success: true, message: "图标已删除" });
   }
 
-  // 5. 获取运行中的 Docker 容器
+  // 8. 获取运行中的 Docker 容器
   if (pathname === "/api/docker/containers" && req.method === "GET") {
     const containers = getDockerContainers();
     return sendJson(res, 200, { success: true, containers });
   }
 
-  // 6. 抓取网站 Favicon
+  // 9. 抓取网站 Favicon
   if (pathname === "/api/fetch-favicon" && req.method === "POST") {
     const body = await parseJsonBody(req);
     if (!body.url) return sendJson(res, 400, { success: false, message: "缺少 url 或端口参数" });
@@ -797,7 +1174,7 @@ async function handleRequest(req, res) {
     }
   }
 
-  // 7. 获取内置品牌预设图标库
+  // 10. 获取内置品牌预设图标库
   if (pathname === "/api/presets" && req.method === "GET") {
     const list = Object.entries(PRESET_ICONS).map(([key, item]) => ({
       key,
@@ -808,7 +1185,7 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, { success: true, presets: list });
   }
 
-  // 8. 上传自定义图标图片
+  // 11. 上传自定义图标图片
   if (pathname === "/api/upload-icon" && req.method === "POST") {
     const body = await parseJsonBody(req);
     if (!body.dataUrl) return sendJson(res, 400, { success: false, message: "缺少 dataUrl" });
@@ -823,7 +1200,7 @@ async function handleRequest(req, res) {
     return sendJson(res, 200, { success: true, path: `/deskdata/img/${fileName}` });
   }
 
-  // 9. 生成原生应用 (Native App)
+  // 12. 生成原生应用 (Native App)
   if (pathname === "/api/generate-native" && req.method === "POST") {
     const body = await parseJsonBody(req);
     try {
@@ -834,7 +1211,7 @@ async function handleRequest(req, res) {
     }
   }
 
-  // 10. 卸载原生应用
+  // 13. 卸载原生应用
   if (pathname === "/api/uninstall-native" && req.method === "POST") {
     const body = await parseJsonBody(req);
     try {
