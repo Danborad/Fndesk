@@ -71,6 +71,7 @@ const state = {
   activeFilter: "all",
   searchKeyword: "",
   activeMainTab: "icons",
+  editingNative: false,
 
   // 图标工坊状态 (WeTab 裁剪风格)
   cropper: {
@@ -505,6 +506,7 @@ function openAddIconModal() {
   document.getElementById("editModalTitle").innerHTML = `<i class="fa fa-crop" style="color: var(--accent);"></i> 添加应用图标`;
   
   // 默认不勾选飞牛原生应用注入
+  state.editingNative = false;
   document.getElementById("fieldGenerateNative").checked = false;
 
   state.cropper.image = null;
@@ -540,7 +542,8 @@ function editIcon(id) {
   document.getElementById("fieldAppname").value = item.appname || "";
   
   // 原生应用复选框：不默认勾选！仅当原本就是原生应用时才勾选
-  document.getElementById("fieldGenerateNative").checked = Boolean(item.nativeInstalled || item.fnAppicon === 1);
+  state.editingNative = Boolean(item.nativeInstalled || item.fnAppicon === 1);
+  document.getElementById("fieldGenerateNative").checked = state.editingNative;
   
   document.getElementById("editModalTitle").innerHTML = `<i class="fa fa-crop" style="color: var(--accent);"></i> 编辑应用图标: ${escapeHtml(item.fndata_Title)}`;
 
@@ -652,6 +655,9 @@ async function saveIcon() {
     payload.iconDataUrl = canvas.toDataURL("image/png");
   }
 
+  // 记录原生应用勾选状态是否发生变化，用于保存后自动重挂桌面避免图标重复
+  const prevNative = isEdit ? Boolean(state.editingNative) : false;
+
   const btn = document.getElementById("btnSaveIcon");
   btn.disabled = true;
   btn.innerHTML = `<i class="fa fa-spinner fa-spin"></i> <span>保存中...</span>`;
@@ -661,6 +667,32 @@ async function saveIcon() {
       method: "POST",
       body: JSON.stringify(payload)
     });
+
+    // 若原生应用注入状态发生切换（无 -> 有），自动重新挂载桌面注入脚本并刷新桌面，
+    // 让旧的桌面快捷方式被移除，避免与新建的原生应用图标重复显示。
+    if (payload.generateNative !== prevNative) {
+      showToast(payload.generateNative
+        ? "已生成飞牛原生应用，正在同步移除重复的桌面快捷方式..."
+        : "已取消原生应用，正在恢复桌面快捷方式...", "success");
+      try {
+        await fetchApi("/apply-desktop", { method: "POST" });
+      } catch (_) {}
+      closeModal("editModal");
+      loadIcons();
+      setTimeout(() => {
+        try {
+          if (window.top && window.top !== window) {
+            window.top.location.reload();
+          } else {
+            window.location.reload();
+          }
+        } catch (_) {
+          window.location.reload();
+        }
+      }, 700);
+      return;
+    }
+
     showToast("应用配置保存成功！", "success");
     closeModal("editModal");
     loadIcons();

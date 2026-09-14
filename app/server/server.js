@@ -109,13 +109,26 @@ function applyDesktop() {
 
   // 4. 注入 script 标签到 /usr/trim/www/index.html
   let content = fs.readFileSync(TARGET_INDEX, "utf8");
-  if (!content.includes("fndesk-desktop-inject")) {
-    const injectTag = '<script id="fndesk-desktop-inject" src="/static/fndesk-desktop.js"></script>';
-    if (content.includes("</body>")) {
-      content = content.replace("</body>", `${injectTag}</body>`);
-    } else {
-      content += injectTag;
+  // 版本号取自注入脚本的修改时间，用于穿透浏览器缓存，保证修复能立即下发
+  let stamp = Date.now();
+  try {
+    stamp = Math.floor(fs.statSync(localInjectJs).mtimeMs);
+  } catch (_) {}
+  const injectTag = `<script id="fndesk-desktop-inject" src="/static/fndesk-desktop.js?v=${stamp}"></script>`;
+  const tagRe = /<script id="fndesk-desktop-inject"[^>]*><\/script>/;
+  if (tagRe.test(content)) {
+    const updated = content.replace(tagRe, injectTag);
+    if (updated !== content) {
+      content = updated;
+      fs.writeFileSync(TARGET_INDEX, content, "utf8");
+      try { fs.chmodSync(TARGET_INDEX, 0o644); } catch (_) {}
     }
+  } else if (content.includes("</body>")) {
+    content = content.replace("</body>", `${injectTag}</body>`);
+    fs.writeFileSync(TARGET_INDEX, content, "utf8");
+    try { fs.chmodSync(TARGET_INDEX, 0o644); } catch (_) {}
+  } else {
+    content += injectTag;
     fs.writeFileSync(TARGET_INDEX, content, "utf8");
     try { fs.chmodSync(TARGET_INDEX, 0o644); } catch (_) {}
   }
@@ -1130,14 +1143,23 @@ async function handleRequest(req, res) {
       cropSettings: body.cropSettings || (existingIdx !== -1 ? icons[existingIdx].cropSettings : undefined)
     };
 
+    // 记录变更前的原生应用状态（含历史遗留仅有 fnAppicon 标记、以及实际已安装两种来源）
+    let prevNative = false;
+    if (existingIdx !== -1) {
+      const prevAppname = icons[existingIdx].appname || `fndesk_${targetId}`;
+      prevNative = icons[existingIdx].fnAppicon === 1 || getInstalledNativeApps().has(prevAppname);
+    }
+    const wantNative = Boolean(body.generateNative);
+
     if (existingIdx !== -1) {
       icons[existingIdx] = { ...icons[existingIdx], ...itemData };
+      if (prevNative && !wantNative) icons[existingIdx].fnAppicon = 0;
     } else {
       icons.push(itemData);
     }
     writeIcons(icons);
 
-    if (body.generateNative) {
+    if (wantNative) {
       try {
         let iconForNative = body.iconDataUrl;
         if (!iconForNative && lanPic) {
@@ -1154,13 +1176,23 @@ async function handleRequest(req, res) {
       } catch (e) {
         console.warn("[Fndesk Lite] 同步生成原生应用失败:", e.message);
       }
-    } else if (existingIdx !== -1 && icons[existingIdx].fnAppicon === 1) {
+    } else if (prevNative) {
       try {
         await uninstallNativeApp(itemData.appname);
         itemData.fnAppicon = 0;
-        icons[existingIdx].fnAppicon = 0;
-        writeIcons(icons);
+        const idx2 = icons.findIndex(i => parseInt(i.id, 10) === targetId);
+        if (idx2 !== -1) { icons[idx2].fnAppicon = 0; writeIcons(icons); }
       } catch (_) {}
+    }
+
+    // 原生应用状态一旦发生变化，若桌面已处于注入生效状态，则立即重新下发注入脚本：
+    // 让「已生成原生应用」的条目停止注入桌面快捷方式，避免出现两个同名图标重复显示。
+    if (prevNative !== wantNative) {
+      try {
+        if (getDesktopStatus().injected) applyDesktop();
+      } catch (e) {
+        console.warn("[Fndesk Lite] 重新下发桌面注入失败:", e.message);
+      }
     }
 
     return sendJson(res, 200, { success: true, message: "图标保存成功", item: itemData });

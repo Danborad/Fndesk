@@ -773,6 +773,10 @@
     icons.forEach(item => {
       if (item.enable === 0) return;
 
+      // 已同步注册为飞牛原生应用 (Native App) 的条目，由飞牛应用中心自行渲染桌面图标，
+      // 此处必须跳过，否则会与注入的快捷方式重复显示两个同名图标。
+      if (item.fnAppicon === 1 || item.nativeInstalled === true) return;
+
       let finalUrl = item.fndata_Lan || "";
       if (/^\d+$/.test(finalUrl.trim())) {
         const proto = item.fndata_Protocol === 2 ? "https" : "http";
