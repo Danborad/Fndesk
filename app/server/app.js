@@ -1,3 +1,7 @@
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 /**
  * Fndesk Lite - 前端核心业务控制器
  * 包含：WeTab 极简图标裁剪工坊、WeTab 桌面卡片组件管理、立即生效与还原桌面防搞坏机制
@@ -78,7 +82,11 @@ const state = {
     bgColor: "transparent",
     isDragging: false,
     dragStartX: 0,
-    dragStartY: 0
+    dragStartY: 0,
+    startPanX: 0,
+    startPanY: 0,
+    isModified: false,
+    isExistingIcon: false
   },
 
   // 小组件表单状态
@@ -117,8 +125,21 @@ async function applyDesktop() {
   btn.innerHTML = `<i class="fa fa-spinner fa-spin"></i> <span>生效中...</span>`;
   try {
     const res = await fetchApi("/apply-desktop", { method: "POST" });
-    showToast(res.message || "飞牛桌面已生效！刷新飞牛桌面即可显现。", "success");
+    showToast(res.message || "飞牛桌面已生效！正在同步刷新桌面...", "success");
     checkDesktopStatus();
+    setTimeout(() => {
+      try {
+        if (window.top && window.top !== window) {
+          window.top.location.reload();
+        } else if (window.parent && window.parent !== window) {
+          window.parent.location.reload();
+        } else {
+          window.location.reload();
+        }
+      } catch (_) {
+        window.location.reload();
+      }
+    }, 600);
   } catch (err) {
     showToast("立即生效失败: " + err.message, "error");
   } finally {
@@ -133,9 +154,22 @@ async function restoreDesktop() {
   btn.innerHTML = `<i class="fa fa-spinner fa-spin"></i> <span>正在还原...</span>`;
   try {
     const res = await fetchApi("/restore-desktop", { method: "POST" });
-    showToast(res.message || "桌面已彻底还原为出厂状态！", "success");
+    showToast(res.message || "桌面已彻底还原为出厂状态！正在刷新桌面...", "success");
     closeModal("restoreConfirmModal");
     checkDesktopStatus();
+    setTimeout(() => {
+      try {
+        if (window.top && window.top !== window) {
+          window.top.location.reload();
+        } else if (window.parent && window.parent !== window) {
+          window.parent.location.reload();
+        } else {
+          window.location.reload();
+        }
+      } catch (_) {
+        window.location.reload();
+      }
+    }, 600);
   } catch (err) {
     showToast("还原失败: " + err.message, "error");
   } finally {
@@ -252,7 +286,7 @@ function renderCropCanvas() {
   ctx.clip();
 
   // 底色填充
-  if (state.cropper.bgColor !== "transparent") {
+  if (state.cropper.bgColor && state.cropper.bgColor !== "transparent") {
     ctx.fillStyle = state.cropper.bgColor;
     ctx.fillRect(0, 0, size, size);
   }
@@ -267,7 +301,10 @@ function renderCropCanvas() {
     const img = state.cropper.image;
     const iw = img.naturalWidth || img.width;
     const ih = img.naturalHeight || img.height;
-    const fitScale = (size * 0.75) / Math.max(iw, ih);
+
+    // 如果是成型已有图标，按 1:1 完整铺满裁剪画布；新抓取的 Favicon 或新上传的 Logo 原图，按 0.75 留出优雅边距
+    const ratio = state.cropper.isExistingIcon ? 1.0 : 0.75;
+    const fitScale = (size * ratio) / Math.max(iw, ih);
     const dw = iw * fitScale;
     const dh = ih * fitScale;
 
@@ -278,38 +315,57 @@ function renderCropCanvas() {
   ctx.restore();
 }
 
-function loadCropperImage(src) {
+function loadCropperImage(src, isExisting = false) {
   if (!src) return;
   const img = new Image();
-  img.crossOrigin = "anonymous";
+  if (!src.startsWith("data:")) {
+    img.crossOrigin = "anonymous";
+  }
   img.onload = () => {
     state.cropper.image = img;
-    state.cropper.scale = 1.0;
-    state.cropper.panX = 0;
-    state.cropper.panY = 0;
-    state.cropper.rotation = 0;
+    state.cropper.isExistingIcon = isExisting;
+    if (!state.cropper.isModified) {
+      state.cropper.scale = 1.0;
+      state.cropper.panX = 0;
+      state.cropper.panY = 0;
+      state.cropper.rotation = 0;
+    }
     renderCropCanvas();
   };
   img.onerror = () => {
-    showToast("图片加载失败，请重试或手动上传", "error");
+    if (img.crossOrigin) {
+      const fallbackImg = new Image();
+      fallbackImg.onload = () => {
+        state.cropper.image = fallbackImg;
+        state.cropper.isExistingIcon = isExisting;
+        renderCropCanvas();
+      };
+      fallbackImg.src = src;
+    }
   };
   img.src = src;
 }
 
 function initCanvasEvents() {
   const wrapper = document.getElementById("canvasContainer");
+  const displayRatio = 256 / 114;
 
   // 拖动平移
   wrapper.addEventListener("mousedown", e => {
     state.cropper.isDragging = true;
-    state.cropper.dragStartX = e.clientX - state.cropper.panX;
-    state.cropper.dragStartY = e.clientY - state.cropper.panY;
+    state.cropper.dragStartX = e.clientX;
+    state.cropper.dragStartY = e.clientY;
+    state.cropper.startPanX = state.cropper.panX;
+    state.cropper.startPanY = state.cropper.panY;
   });
 
   window.addEventListener("mousemove", e => {
     if (!state.cropper.isDragging) return;
-    state.cropper.panX = e.clientX - state.cropper.dragStartX;
-    state.cropper.panY = e.clientY - state.cropper.dragStartY;
+    const dx = (e.clientX - state.cropper.dragStartX) * displayRatio;
+    const dy = (e.clientY - state.cropper.dragStartY) * displayRatio;
+    state.cropper.panX = state.cropper.startPanX + dx;
+    state.cropper.panY = state.cropper.startPanY + dy;
+    state.cropper.isModified = true;
     renderCropCanvas();
   });
 
@@ -320,18 +376,21 @@ function initCanvasEvents() {
   // 滚轮缩放
   wrapper.addEventListener("wheel", e => {
     e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.08 : 0.08;
+    const delta = e.deltaY > 0 ? -0.06 : 0.06;
     state.cropper.scale = Math.max(0.3, Math.min(3.0, state.cropper.scale + delta));
+    state.cropper.isModified = true;
     renderCropCanvas();
   }, { passive: false });
 
   // 工具栏按钮控制
   document.getElementById("btnRotateCCW").onclick = () => {
     state.cropper.rotation = (state.cropper.rotation - 90) % 360;
+    state.cropper.isModified = true;
     renderCropCanvas();
   };
   document.getElementById("btnRotateCW").onclick = () => {
     state.cropper.rotation = (state.cropper.rotation + 90) % 360;
+    state.cropper.isModified = true;
     renderCropCanvas();
   };
   document.getElementById("btnResetCrop").onclick = () => {
@@ -339,14 +398,17 @@ function initCanvasEvents() {
     state.cropper.panX = 0;
     state.cropper.panY = 0;
     state.cropper.rotation = 0;
+    state.cropper.isModified = true;
     renderCropCanvas();
   };
   document.getElementById("btnZoomOut").onclick = () => {
     state.cropper.scale = Math.max(0.3, state.cropper.scale - 0.1);
+    state.cropper.isModified = true;
     renderCropCanvas();
   };
   document.getElementById("btnZoomIn").onclick = () => {
     state.cropper.scale = Math.min(3.0, state.cropper.scale + 0.1);
+    state.cropper.isModified = true;
     renderCropCanvas();
   };
 }
@@ -440,42 +502,76 @@ function openAddIconModal() {
   document.getElementById("fieldLanPic").value = "";
   document.getElementById("fieldIconDataUrl").value = "";
   document.getElementById("fieldAppname").value = "";
-  document.getElementById("editModalTitle").innerHTML = `<i class="fa fa-crop" style="color: var(--accent);"></i> 图标裁剪与应用配置`;
-  document.getElementById("fieldGenerateNative").checked = true;
+  document.getElementById("editModalTitle").innerHTML = `<i class="fa fa-crop" style="color: var(--accent);"></i> 添加应用图标`;
+  
+  // 默认不勾选飞牛原生应用注入
+  document.getElementById("fieldGenerateNative").checked = false;
 
   state.cropper.image = null;
+  state.cropper.isModified = false;
+  state.cropper.isExistingIcon = false;
   state.cropper.scale = 1.0;
   state.cropper.panX = 0;
   state.cropper.panY = 0;
   state.cropper.rotation = 0;
   state.cropper.bgColor = "transparent";
 
-  // 默认画一个干净的占位
+  const sel = document.getElementById("dockerSelect");
+  if (sel) sel.value = "";
+
   renderCropCanvas();
   initPaletteDots();
   openModal("editModal");
 }
 
 function editIcon(id) {
-  const item = state.icons.find(i => i.id === id);
+  const item = state.icons.find(i => String(i.id) === String(id));
   if (!item) return;
+
+  document.getElementById("iconForm").reset();
 
   document.getElementById("fieldId").value = item.id;
   document.getElementById("fieldTitle").value = item.fndata_Title || "";
   document.getElementById("fieldLan").value = item.fndata_Lan || "";
   document.getElementById("fieldWan").value = item.fndata_Wan || "";
-  document.getElementById("fieldOpenInPage").value = item.OpenInPage || 0;
-  document.getElementById("fieldProtocol").value = item.fndata_Protocol || 0;
+  document.getElementById("fieldOpenInPage").value = item.OpenInPage !== undefined ? item.OpenInPage : 0;
+  document.getElementById("fieldProtocol").value = item.fndata_Protocol !== undefined ? item.fndata_Protocol : 0;
   document.getElementById("fieldLanPic").value = item.fndata_LanPic || "";
   document.getElementById("fieldAppname").value = item.appname || "";
-  document.getElementById("fieldGenerateNative").checked = Boolean(item.nativeInstalled);
-  document.getElementById("editModalTitle").innerHTML = `<i class="fa fa-crop" style="color: var(--accent);"></i> 编辑应用图标: ${item.fndata_Title}`;
+  
+  // 原生应用复选框：不默认勾选！仅当原本就是原生应用时才勾选
+  document.getElementById("fieldGenerateNative").checked = Boolean(item.nativeInstalled || item.fnAppicon === 1);
+  
+  document.getElementById("editModalTitle").innerHTML = `<i class="fa fa-crop" style="color: var(--accent);"></i> 编辑应用图标: ${escapeHtml(item.fndata_Title)}`;
+
+  // 回显裁切与底色设置
+  const cs = item.cropSettings || {};
+  state.cropper.isModified = false;
+  state.cropper.isExistingIcon = true;
+  state.cropper.scale = cs.scale || 1.0;
+  state.cropper.panX = cs.panX || 0;
+  state.cropper.panY = cs.panY || 0;
+  state.cropper.rotation = cs.rotation || 0;
+  state.cropper.bgColor = cs.bgColor || "transparent";
+
+  // 自动匹配已选择的 Docker 容器
+  const sel = document.getElementById("dockerSelect");
+  if (sel) {
+    sel.value = "";
+    const matched = state.dockerContainers.find(c =>
+      (c.hostPort && String(c.hostPort) === String(item.fndata_Lan)) ||
+      (c.name && c.name.toLowerCase() === (item.fndata_Title || "").toLowerCase())
+    );
+    if (matched) {
+      sel.value = matched.name;
+    }
+  }
 
   let imgSrc = item.fndata_LanPic || "";
   if (imgSrc.startsWith("/deskdata")) {
     imgSrc = `${API_BASE.replace(/\/api$/, "")}${imgSrc}`;
   }
-  loadCropperImage(imgSrc);
+  loadCropperImage(imgSrc, true /* isExisting */);
   initPaletteDots();
   openModal("editModal");
 }
@@ -509,7 +605,9 @@ async function handleSniffFavicon() {
       body: JSON.stringify({ url: portOrUrl, title })
     });
     if (res.dataUrl) {
-      loadCropperImage(res.dataUrl);
+      state.cropper.isModified = true;
+      state.cropper.isExistingIcon = false;
+      loadCropperImage(res.dataUrl, false);
       showToast("图标探测成功！", "success");
     }
   } catch (err) {
@@ -525,38 +623,52 @@ async function saveIcon() {
   const title = document.getElementById("fieldTitle").value.trim();
   if (!title) return showToast("请输入应用名称", "error");
 
-  const canvas = document.getElementById("studioCanvas");
-  const iconDataUrl = canvas.toDataURL("image/png");
+  const isEdit = Boolean(document.getElementById("fieldId").value);
+  const targetId = isEdit ? parseInt(document.getElementById("fieldId").value, 10) : undefined;
 
   const payload = {
-    id: document.getElementById("fieldId").value ? parseInt(document.getElementById("fieldId").value, 10) : undefined,
+    id: targetId,
     fndata_Title: title,
     fndata_Lan: document.getElementById("fieldLan").value.trim(),
     fndata_Wan: document.getElementById("fieldWan").value.trim(),
     OpenInPage: parseInt(document.getElementById("fieldOpenInPage").value, 10),
     fndata_Protocol: parseInt(document.getElementById("fieldProtocol").value, 10),
     generateNative: document.getElementById("fieldGenerateNative").checked,
-    iconDataUrl: iconDataUrl,
-    appname: document.getElementById("fieldAppname").value || undefined
+    fndata_LanPic: document.getElementById("fieldLanPic").value || "",
+    appname: document.getElementById("fieldAppname").value || undefined,
+    cropSettings: {
+      scale: state.cropper.scale,
+      panX: state.cropper.panX,
+      panY: state.cropper.panY,
+      rotation: state.cropper.rotation,
+      bgColor: state.cropper.bgColor
+    }
   };
+
+  // 关键：只有当用户新上传/抓取/微调了图标，或者新建图标时，才导出并发送 iconDataUrl
+  // 如果是编辑已有图标且未修改图标，直接保留原有图片文件，绝不重新生成覆盖！
+  if (!isEdit || state.cropper.isModified || !payload.fndata_LanPic) {
+    const canvas = document.getElementById("studioCanvas");
+    payload.iconDataUrl = canvas.toDataURL("image/png");
+  }
 
   const btn = document.getElementById("btnSaveIcon");
   btn.disabled = true;
-  btn.innerHTML = `<i class="fa fa-spinner fa-spin"></i> <span>正在保存应用...</span>`;
+  btn.innerHTML = `<i class="fa fa-spinner fa-spin"></i> <span>保存中...</span>`;
 
   try {
     await fetchApi("/icons", {
       method: "POST",
       body: JSON.stringify(payload)
     });
-    showToast("应用图标保存成功！", "success");
+    showToast("应用配置保存成功！", "success");
     closeModal("editModal");
     loadIcons();
   } catch (err) {
     showToast("保存失败: " + err.message, "error");
   } finally {
     btn.disabled = false;
-    btn.innerHTML = `完成`;
+    btn.innerHTML = `完成保存`;
   }
 }
 
@@ -935,7 +1047,13 @@ function updateStats() {
 }
 
 function openModal(id) {
-  document.getElementById(id).classList.add("active");
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add("active");
+  const modalBody = el.querySelector(".modal-body");
+  if (modalBody) modalBody.scrollTop = 0;
+  const innerModal = el.querySelector(".modal");
+  if (innerModal) innerModal.scrollTop = 0;
 }
 function closeModal(id) {
   document.getElementById(id).classList.remove("active");

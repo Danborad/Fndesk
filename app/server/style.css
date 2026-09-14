@@ -558,75 +558,78 @@ body {
   overflow: hidden;
 }
 .modal-lg {
-  max-width: 980px;
+  max-width: 860px;
 }
 .modal-overlay.active .modal {
   transform: scale(1) translateY(0);
 }
 .modal-header {
-  padding: 1.15rem 1.6rem;
+  padding: 0.65rem 1.2rem;
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 .modal-title {
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 700;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.45rem;
 }
 .modal-body {
-  padding: 1.4rem 1.6rem;
+  padding: 0.75rem 1.2rem;
   overflow-y: auto;
   flex: 1;
 }
 .modal-footer {
-  padding: 0.9rem 1.6rem;
+  padding: 0.6rem 1.2rem;
   border-top: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.75rem;
+  gap: 0.65rem;
   background: rgba(13, 19, 33, 0.5);
 }
 
-/* 双列并排无滚动设计 */
+/* 双列并排极致紧凑一页设计（无须上下滚动） */
 .modal-two-col {
   display: grid;
-  grid-template-columns: 1.05fr 1fr;
-  gap: 1.75rem;
-  align-items: start;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 1rem;
+  align-items: stretch;
 }
 .modal-col-form {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  justify-content: space-between;
+  gap: 0.4rem;
 }
 .modal-col-studio {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
   background: rgba(18, 26, 44, 0.4);
-  padding: 1.25rem;
+  padding: 0.6rem 0.8rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
 }
 
-/* 表单控件 */
+/* 表单控件紧凑精致 */
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.18rem;
 }
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 .form-label {
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -635,11 +638,13 @@ body {
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  padding: 0.55rem 0.85rem;
+  padding: 0.35rem 0.6rem;
   color: var(--text-main);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   outline: none;
   transition: all 0.2s;
+  height: 32px;
+  box-sizing: border-box;
 }
 .form-control:focus {
   border-color: var(--border-active);
@@ -649,8 +654,9 @@ select.form-control {
   cursor: pointer;
 }
 .form-hint {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--text-dim);
+  line-height: 1.25;
 }
 
 /* 原生应用生成切换开关卡片 */
@@ -658,8 +664,8 @@ select.form-control {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.75rem 0.95rem;
+  gap: 0.75rem;
+  padding: 0.4rem 0.75rem;
   background: rgba(56, 189, 248, 0.05);
   border: 1px solid rgba(56, 189, 248, 0.15);
   border-radius: var(--radius-sm);
@@ -668,26 +674,26 @@ select.form-control {
   flex: 1;
 }
 .switch-card-title {
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--accent);
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
 }
 .switch-card-desc {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--text-muted);
-  line-height: 1.35;
-  margin-top: 2px;
+  line-height: 1.25;
+  margin-top: 1px;
 }
 
-/* WeTab 图标裁剪工坊 (图 3 风格纯正实现) */
+/* WeTab 图标裁剪工坊 */
 .wetab-cropper-col {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 0.4rem;
 }
 .cropper-top-bar {
   width: 100%;
@@ -696,105 +702,105 @@ select.form-control {
   justify-content: space-between;
 }
 .cropper-title {
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-main);
 }
 .cropper-actions {
   display: flex;
-  gap: 6px;
+  gap: 5px;
 }
 
-/* 正方形透明棋盘画布容器 */
+/* 正方形透明棋盘画布容器 (144px 精致紧凑，一页完美展示) */
 .wetab-canvas-wrapper {
   position: relative;
-  width: 220px;
-  height: 220px;
-  border-radius: 14px;
-  background-color: #1e1e24;
+  width: 144px;
+  height: 144px;
+  border-radius: 12px;
+  background-color: #181920;
   background-image: 
-    linear-gradient(45deg, #2b2b36 25%, transparent 25%), 
-    linear-gradient(-45deg, #2b2b36 25%, transparent 25%), 
-    linear-gradient(45deg, transparent 75%, #2b2b36 75%), 
-    linear-gradient(-45deg, transparent 75%, #2b2b36 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+    linear-gradient(45deg, #23242e 25%, transparent 25%), 
+    linear-gradient(-45deg, #23242e 25%, transparent 25%), 
+    linear-gradient(45deg, transparent 75%, #23242e 75%), 
+    linear-gradient(-45deg, transparent 75%, #23242e 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   cursor: grab;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 .wetab-canvas-wrapper:active {
   cursor: grabbing;
 }
 .wetab-crop-canvas {
-  width: 176px;
-  height: 176px;
+  width: 114px;
+  height: 114px;
   border-radius: 22%; /* 飞牛官方平滑圆角 */
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
   pointer-events: none;
 }
 
-/* 白色四角裁剪导向框 (图 3 同款) */
+/* 白色四角裁剪导向框 */
 .wetab-crop-frame {
   position: absolute;
-  width: 176px;
-  height: 176px;
+  width: 114px;
+  height: 114px;
   border: 1.5px solid rgba(255, 255, 255, 0.7);
   border-radius: 22%; /* 飞牛官方平滑圆角 */
   pointer-events: none;
 }
 .crop-corner {
   position: absolute;
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
   border-color: #ffffff;
   border-style: solid;
 }
 .crop-corner.top-left {
   top: -2px;
   left: -2px;
-  border-width: 3px 0 0 3px;
-  border-top-left-radius: 6px;
+  border-width: 2.5px 0 0 2.5px;
+  border-top-left-radius: 5px;
 }
 .crop-corner.top-right {
   top: -2px;
   right: -2px;
-  border-width: 3px 3px 0 0;
-  border-top-right-radius: 6px;
+  border-width: 2.5px 2.5px 0 0;
+  border-top-right-radius: 5px;
 }
 .crop-corner.bottom-left {
   bottom: -2px;
   left: -2px;
-  border-width: 0 0 3px 3px;
-  border-bottom-left-radius: 6px;
+  border-width: 0 0 2.5px 2.5px;
+  border-bottom-left-radius: 5px;
 }
 .crop-corner.bottom-right {
   bottom: -2px;
   right: -2px;
-  border-width: 0 3px 3px 0;
-  border-bottom-right-radius: 6px;
+  border-width: 0 2.5px 2.5px 0;
+  border-bottom-right-radius: 5px;
 }
 
-/* WeTab 工具栏按钮组 (图 3 同款) */
+/* WeTab 工具栏按钮组 */
 .wetab-tool-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  max-width: 240px;
-  padding: 4px 6px;
+  max-width: 210px;
+  padding: 0;
 }
 .wetab-tool-btn {
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   border: none;
   background: rgba(255, 255, 255, 0.08);
   color: #cbd5e1;
-  font-size: 13px;
+  font-size: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -810,22 +816,22 @@ select.form-control {
   transform: scale(0.96);
 }
 
-/* WeTab 两排整齐圆点底色调色盘 (图 3 同款) */
+/* WeTab 两排整齐圆点底色调色盘 */
 .wetab-palette-section {
   width: 100%;
-  max-width: 300px;
+  max-width: 260px;
 }
 .wetab-palette-dots {
   display: grid;
   grid-template-columns: repeat(10, 1fr);
-  gap: 8px;
+  gap: 5px;
   justify-items: center;
 }
 .palette-dot {
-  width: 20px;
-  height: 20px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
-  border: 2px solid transparent;
+  border: 1.5px solid transparent;
   cursor: pointer;
   transition: all 0.15s ease;
   position: relative;
@@ -835,26 +841,32 @@ select.form-control {
 }
 .palette-dot.active {
   border-color: #ffffff;
-  box-shadow: 0 0 0 2px var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent);
   transform: scale(1.15);
 }
 .palette-dot-rainbow {
   background: conic-gradient(red, yellow, lime, aqua, blue, magenta, red);
 }
 
-/* 完成保存大按钮 (图 3 同款绚丽圆角主按钮) */
-.btn-wetab-done {
+/* WeTab 操作按钮组 (取消与完成保存并排) */
+.wetab-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
-  padding: 0.75rem;
-  font-size: 1rem;
+  margin-top: 2px;
+}
+.btn-wetab-done {
+  flex: 1.8;
+  padding: 0.38rem 0.75rem;
+  font-size: 0.82rem;
   font-weight: 700;
   border-radius: var(--radius-sm);
   background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
   color: #ffffff;
   border: none;
-  box-shadow: 0 4px 18px rgba(79, 70, 229, 0.35);
+  box-shadow: 0 3px 12px rgba(79, 70, 229, 0.35);
   cursor: pointer;
-  margin-top: 4px;
 }
 .btn-wetab-done:hover {
   filter: brightness(1.12);

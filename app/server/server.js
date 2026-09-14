@@ -890,7 +890,7 @@ function serveStatic(req, res, pathname) {
   if (relativePath === "desktop-inject.js" || relativePath === "static/fndesk-desktop.js") {
     const desktopJsPath = path.join(__dirname, "static", "fndesk-desktop.js");
     if (fs.existsSync(desktopJsPath)) {
-      res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-cache" });
+      res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*" });
       return fs.createReadStream(desktopJsPath).pipe(res);
     }
   }
@@ -901,7 +901,7 @@ function serveStatic(req, res, pathname) {
     if (fs.existsSync(fullPath)) {
       const ext = path.extname(fullPath).toLowerCase();
       const mime = MIME_TYPES[ext] || "application/octet-stream";
-      res.writeHead(200, { "Content-Type": mime, "Cache-Control": "public, max-age=86400" });
+      res.writeHead(200, { "Content-Type": mime, "Cache-Control": "public, max-age=86400", "Access-Control-Allow-Origin": "*" });
       return fs.createReadStream(fullPath).pipe(res);
     }
   }
@@ -916,13 +916,13 @@ function serveStatic(req, res, pathname) {
   if (fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
     const ext = path.extname(targetPath).toLowerCase();
     const mime = MIME_TYPES[ext] || "application/octet-stream";
-    res.writeHead(200, { "Content-Type": mime, "Cache-Control": "no-cache" });
+    res.writeHead(200, { "Content-Type": mime, "Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*" });
     return fs.createReadStream(targetPath).pipe(res);
   }
 
   const indexFallback = path.join(staticBase, "index.html");
   if (fs.existsSync(indexFallback)) {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Access-Control-Allow-Origin": "*" });
     return fs.createReadStream(indexFallback).pipe(res);
   }
 
@@ -1097,6 +1097,8 @@ async function handleRequest(req, res) {
       targetId = icons.length > 0 ? Math.max(...icons.map(i => parseInt(i.id || 0, 10))) + 1 : 1;
     }
 
+    const existingIdx = icons.findIndex(i => parseInt(i.id, 10) === targetId);
+
     let lanPic = body.fndata_LanPic || "";
     if (body.iconDataUrl && body.iconDataUrl.startsWith("data:image")) {
       const ext = body.iconDataUrl.includes("image/svg") ? "svg" : "png";
@@ -1105,6 +1107,11 @@ async function handleRequest(req, res) {
       const base64Data = body.iconDataUrl.replace(/^data:image\/\w+;base64,/, "");
       fs.writeFileSync(savePath, Buffer.from(base64Data, "base64"));
       lanPic = `/deskdata/img/${fileName}`;
+    }
+
+    // 如果未上传新裁切图片且是编辑，保持已有图片不变
+    if (!lanPic && existingIdx !== -1 && icons[existingIdx].fndata_LanPic) {
+      lanPic = icons[existingIdx].fndata_LanPic;
     }
 
     const itemData = {
@@ -1118,11 +1125,11 @@ async function handleRequest(req, res) {
       fndata_Sort: parseInt(body.fndata_Sort || (targetId * 10), 10),
       OpenInPage: parseInt(body.OpenInPage || 0, 10),
       enable: body.enable !== undefined ? parseInt(body.enable, 10) : 1,
-      fnAppicon: parseInt(body.fnAppicon || 0, 10),
-      appname: body.appname || `fndesk_${targetId}`
+      fnAppicon: body.generateNative ? 1 : (existingIdx !== -1 ? (icons[existingIdx].fnAppicon || 0) : 0),
+      appname: body.appname || `fndesk_${targetId}`,
+      cropSettings: body.cropSettings || (existingIdx !== -1 ? icons[existingIdx].cropSettings : undefined)
     };
 
-    const existingIdx = icons.findIndex(i => parseInt(i.id, 10) === targetId);
     if (existingIdx !== -1) {
       icons[existingIdx] = { ...icons[existingIdx], ...itemData };
     } else {
@@ -1130,12 +1137,30 @@ async function handleRequest(req, res) {
     }
     writeIcons(icons);
 
-    if (body.generateNative && body.iconDataUrl) {
+    if (body.generateNative) {
       try {
-        await generateNativeApp(itemData, body.iconDataUrl);
+        let iconForNative = body.iconDataUrl;
+        if (!iconForNative && lanPic) {
+          const imgName = lanPic.replace(/^\/deskdata\/img\//, "");
+          const fullPath = path.join(IMG_DIR, imgName);
+          if (fs.existsSync(fullPath)) {
+            const data = fs.readFileSync(fullPath);
+            iconForNative = `data:image/png;base64,${data.toString("base64")}`;
+          }
+        }
+        if (iconForNative) {
+          await generateNativeApp(itemData, iconForNative);
+        }
       } catch (e) {
         console.warn("[Fndesk Lite] 同步生成原生应用失败:", e.message);
       }
+    } else if (existingIdx !== -1 && icons[existingIdx].fnAppicon === 1) {
+      try {
+        await uninstallNativeApp(itemData.appname);
+        itemData.fnAppicon = 0;
+        icons[existingIdx].fnAppicon = 0;
+        writeIcons(icons);
+      } catch (_) {}
     }
 
     return sendJson(res, 200, { success: true, message: "图标保存成功", item: itemData });

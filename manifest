@@ -9,5 +9,5 @@ distributor_url  = https://github.com/Danborad/Fndesk
 desktop_uidir    = ui
 platform         = all
 desktop_applaunchname = fndesk.Application
-version          = 2.1.0
+version          = 2.2.0
 changelog        = `• 彻底精简重构为 Fndesk Lite 轻量纯净版<br>• 移除全部闭源二进制与外链依赖，基于纯净 Node.js 开源服务<br>• 移除音乐播放器、仿系统主题、硬件伪装等臃肿功能，专注于图标管理<br>• 全新内置专业级「图标工坊 (Icon Studio)」：支持苹果平滑圆角（Squircle）、留白内边距、品牌纯色与高级渐变底色、实景桌面预览<br>• 支持 Docker 容器一键探测导入与网页高清 Favicon 自动嗅探<br>• 飞牛原生应用图标生成与桌面快捷方式双模式自由切换`

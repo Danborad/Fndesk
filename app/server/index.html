@@ -144,7 +144,7 @@
     </div>
   </main>
 
-  <!-- WeTab 风格图标裁剪与应用配置一体化模态框 (完全参考图 3) -->
+  <!-- WeTab 风格图标裁剪与应用配置一体化模态框 (极简紧凑一页展示) -->
   <div class="modal-overlay" id="editModal">
     <div class="modal modal-lg">
       <div class="modal-header">
@@ -164,29 +164,31 @@
           <div class="modal-two-col">
             <!-- 左列：应用基础配置 -->
             <div class="modal-col-form">
-              <div class="form-group">
-                <label class="form-label"><i class="fa fa-docker" style="color: var(--accent);"></i> 从 Docker 容器一键导入</label>
-                <select class="form-control" id="dockerSelect">
-                  <option value="">-- 选择运行中的 Docker 容器一键填入 --</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">* 应用名称 / 图标标题</label>
-                <input type="text" class="form-control" id="fieldTitle" required placeholder="如：Jellyfin、青龙、New-API、Alist">
-              </div>
-
-              <div class="form-group">
-                <label class="form-label">* 局域网访问端口或地址</label>
-                <input type="text" class="form-control" id="fieldLan" placeholder="直接填端口（如：3000）或完整内网 URL">
-                <div class="form-hint" id="lanHint" style="color: var(--accent); font-weight: 500;">
-                  填入端口号自动适配飞牛 FN Connect 远程访问穿透。
+              <div class="form-row">
+                <div class="form-group" style="flex: 1.2;">
+                  <label class="form-label">* 应用名称 / 图标标题</label>
+                  <input type="text" class="form-control" id="fieldTitle" required placeholder="如：Jellyfin、青龙、New-API">
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label class="form-label"><i class="fa fa-docker" style="color: var(--accent);"></i> Docker 一键填入</label>
+                  <select class="form-control" id="dockerSelect">
+                    <option value="">-- 选择运行中的容器 --</option>
+                  </select>
                 </div>
               </div>
 
-              <div class="form-group">
-                <label class="form-label">公网外部地址 (可选)</label>
-                <input type="text" class="form-control" id="fieldWan" placeholder="https://nas.example.com:8443">
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">* 局域网访问端口或地址</label>
+                  <input type="text" class="form-control" id="fieldLan" placeholder="直接填端口（如 3000）或内网 URL">
+                  <div class="form-hint" style="color: var(--accent); font-size: 0.68rem; margin-top: 2px;">
+                    填端口号自动走 FN Connect 穿透
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">公网外部地址 (可选)</label>
+                  <input type="text" class="form-control" id="fieldWan" placeholder="https://nas.example.com:8443">
+                </div>
               </div>
 
               <div class="form-row">
@@ -207,23 +209,23 @@
                 </div>
               </div>
 
-              <div class="switch-card" id="cardNativeSwitch">
+              <div class="switch-card" id="cardNativeSwitch" style="padding: 0.45rem 0.75rem; margin-top: 2px;">
                 <div class="switch-card-info">
                   <div class="switch-card-title">
                     <i class="fa fa-cube"></i> 同步注册为飞牛原生应用 (Native App)
                   </div>
                   <div class="switch-card-desc">
-                    生成系统独立套件，桌面、手机 App、FN Connect 同步显现，可随时在应用中心独立卸载。
+                    生成系统独立套件，桌面、手机 App、FN Connect 同步显现，应用中心可随时卸载
                   </div>
                 </div>
-                <input type="checkbox" id="fieldGenerateNative" checked style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent);">
+                <input type="checkbox" id="fieldGenerateNative" style="width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent);">
               </div>
             </div>
 
-            <!-- 右列：WeTab 图标裁剪工坊 (图 3 同款极致简约) -->
+            <!-- 右列：WeTab 图标裁剪工坊 (极简无缝裁剪) -->
             <div class="modal-col-studio wetab-cropper-col">
               <div class="cropper-top-bar">
-                <div class="cropper-title">图标裁剪（统一飞牛原生圆角）</div>
+                <div class="cropper-title"><i class="fa fa-paint-brush" style="color: var(--accent);"></i> 图标裁剪（飞牛圆角）</div>
                 <div class="cropper-actions">
                   <button type="button" class="btn btn-secondary btn-xs" id="btnSniffFavicon" title="根据填写的端口或地址自动抓取网站高清图标">
                     <i class="fa fa-globe"></i> <span>抓取 Favicon</span>
@@ -238,7 +240,7 @@
               <!-- WeTab 风格带裁剪框的 Canvas -->
               <div class="wetab-canvas-wrapper" id="canvasContainer">
                 <canvas id="studioCanvas" width="256" height="256" class="wetab-crop-canvas"></canvas>
-                <!-- 白色四角裁切导向框 (图 3 同款) -->
+                <!-- 白色四角裁切导向框 -->
                 <div class="wetab-crop-frame" id="cropFrame">
                   <div class="crop-corner top-left"></div>
                   <div class="crop-corner top-right"></div>
@@ -247,7 +249,7 @@
                 </div>
               </div>
 
-              <!-- 工具按钮控制行 (图 3 同款：逆时针、顺时针、重置、缩小、放大) -->
+              <!-- 工具按钮控制行 (逆时针、顺时针、重置、缩小、放大) -->
               <div class="wetab-tool-row">
                 <button type="button" class="wetab-tool-btn" id="btnRotateCCW" title="逆时针旋转 90°">
                   <i class="fa fa-rotate-left"></i>
@@ -266,23 +268,21 @@
                 </button>
               </div>
 
-              <!-- WeTab 图 3 同款整齐两排圆点底色调色盘 -->
+              <!-- WeTab 整齐两排圆点底色调色盘 -->
               <div class="wetab-palette-section">
                 <div class="wetab-palette-dots" id="paletteDots">
                   <!-- JS 动态注入两排标准圆点 -->
                 </div>
               </div>
 
-              <!-- 完成保存大按钮 -->
-              <button type="button" class="btn btn-primary btn-wetab-done" id="btnSaveIcon">
-                完成
-              </button>
+              <!-- 操作按钮组 (取消与完成保存并排紧凑，无须向下滚动) -->
+              <div class="wetab-action-row">
+                <button type="button" class="btn btn-secondary btn-sm" id="btnCancelEdit" style="flex: 1; padding: 0.42rem;">取消</button>
+                <button type="button" class="btn btn-primary btn-wetab-done btn-sm" id="btnSaveIcon" style="flex: 1.8; margin-top: 0; padding: 0.42rem;">完成保存</button>
+              </div>
             </div>
           </div>
         </form>
-      </div>
-      <div class="modal-footer" style="display: flex; justify-content: flex-end;">
-        <button type="button" class="btn btn-secondary" id="btnCancelEdit">取消</button>
       </div>
     </div>
   </div>
